@@ -1,0 +1,5 @@
+{
+  "name": "Wplace Pixel Art Helper",
+  "description": "Upload an image, convert it to pixel art using the official 64-color Wplace palette, and overlay it on the wplace.io canvas to easily recreate your design. Customize dimensions, position, and opacity for a perfect fit.",
+  "requestFramePermissions": []
+}
