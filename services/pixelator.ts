@@ -46,18 +46,51 @@ const findClosestWplaceColorRgb = (
   return closestColor;
 };
 
+// Apply brightness, contrast, and saturation adjustments
+const applyColorAdjustments = (
+  r: number, g: number, b: number,
+  brightness: number, contrast: number, saturation: number
+): RgbColor => {
+  // Brightness adjustment (-100 to 100)
+  const brightnessFactor = brightness / 100;
+  r = r + (brightnessFactor * 255);
+  g = g + (brightnessFactor * 255);
+  b = b + (brightnessFactor * 255);
+
+  // Contrast adjustment (-100 to 100)
+  const contrastFactor = (contrast + 100) / 100;
+  r = ((r - 128) * contrastFactor) + 128;
+  g = ((g - 128) * contrastFactor) + 128;
+  b = ((b - 128) * contrastFactor) + 128;
+
+  // Saturation adjustment (-100 to 100)
+  const saturationFactor = (saturation + 100) / 100;
+  const gray = 0.2989 * r + 0.587 * g + 0.114 * b;
+  r = gray + (r - gray) * saturationFactor;
+  g = gray + (g - gray) * saturationFactor;
+  b = gray + (b - gray) * saturationFactor;
+
+  return [Math.max(0, Math.min(255, r)), Math.max(0, Math.min(255, g)), Math.max(0, Math.min(255, b))];
+};
+
+export interface PixelationResult {
+  dataUrl: string;
+  colorUsage: Map<string, number>;
+  totalPixels: number;
+}
+
 export const pixelate = (
     imageSrc: string, 
     settings: PixelatorSettings,
     wplaceColors: WplaceColor[]
-): Promise<string> => {
+): Promise<PixelationResult> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = "Anonymous";
     img.src = imageSrc;
 
     img.onload = () => {
-      const { width, height, dithering } = settings;
+      const { width, height, dithering, brightness, contrast, saturation } = settings;
       const palette = wplacePaletteRgb(wplaceColors);
 
       // 1. Create a source canvas with original image dimensions to get raw pixel data
@@ -98,7 +131,9 @@ export const pixelate = (
           }
           
           if (pixelCount > 0) {
-            averagedRgbData.push([r / pixelCount, g / pixelCount, b / pixelCount]);
+            // Apply color adjustments before averaging
+            const adjusted = applyColorAdjustments(r / pixelCount, g / pixelCount, b / pixelCount, brightness, contrast, saturation);
+            averagedRgbData.push(adjusted);
           } else {
             // If region is fully transparent, default to white
             averagedRgbData.push([255, 255, 255]); 
@@ -114,6 +149,10 @@ export const pixelate = (
       outputCanvas.width = width;
       outputCanvas.height = height;
 
+      // Track color usage
+      const colorUsage = new Map<string, number>();
+      const totalPixels = width * height;
+
       // 4. Draw the pixelated image onto the upscaled canvas, applying palette mapping and dithering
       if (!dithering) {
         // Simple color mapping for each averaged pixel
@@ -125,6 +164,10 @@ export const pixelate = (
             const closestColor = findClosestWplaceColorRgb(r, g, b, palette);
             outputCtx.fillStyle = closestColor.hex;
             outputCtx.fillRect(x, y, 1, 1);
+            
+            // Track color usage
+            const currentCount = colorUsage.get(closestColor.hex) || 0;
+            colorUsage.set(closestColor.hex, currentCount + 1);
           }
         }
       } else {
@@ -142,6 +185,10 @@ export const pixelate = (
 
             outputCtx.fillStyle = newPixelInfo.hex;
             outputCtx.fillRect(x, y, 1, 1);
+            
+            // Track color usage
+            const currentCount = colorUsage.get(newPixelInfo.hex) || 0;
+            colorUsage.set(newPixelInfo.hex, currentCount + 1);
 
             const errR = oldPixel[0] - newPixelRgb[0];
             const errG = oldPixel[1] - newPixelRgb[1];
@@ -166,7 +213,11 @@ export const pixelate = (
         }
       }
 
-      resolve(outputCanvas.toDataURL());
+      resolve({
+        dataUrl: outputCanvas.toDataURL(),
+        colorUsage,
+        totalPixels
+      });
     };
 
     img.onerror = () => {
