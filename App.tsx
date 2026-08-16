@@ -1,9 +1,9 @@
-import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { pixelate } from './services/pixelator';
 import type { PixelatorSettings, ImageHistoryItem, ColorUsage, ExportFormat } from './types';
 import { WPLACE_COLORS } from './constants';
 
-// Icons as simple SVG components
+// Icon Components
 const SunIcon = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
@@ -17,8 +17,8 @@ const MoonIcon = () => (
 );
 
 const UploadIcon = () => (
-  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+  <svg className="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
   </svg>
 );
 
@@ -34,21 +34,21 @@ const SparklesIcon = () => (
   </svg>
 );
 
-const HistoryIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-  </svg>
-);
-
 const TrashIcon = () => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
   </svg>
 );
 
-const ChevronDownIcon = () => (
+const GridIcon = () => (
   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+  </svg>
+);
+
+const RefreshIcon = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
   </svg>
 );
 
@@ -60,10 +60,8 @@ const App: React.FC = () => {
   const [sourceImageAspectRatio, setSourceImageAspectRatio] = useState<number | null>(null);
   const [colorUsage, setColorUsage] = useState<ColorUsage[]>([]);
   const [history, setHistory] = useState<ImageHistoryItem[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
   const [exportFormat, setExportFormat] = useState<ExportFormat>('png');
   const [darkMode, setDarkMode] = useState(true);
-  const [activeSection, setActiveSection] = useState<string | null>('upload');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
@@ -89,44 +87,64 @@ const App: React.FC = () => {
     darkMode: true,
   });
   
+  // Load saved data on mount
   useEffect(() => {
-    const savedHistory = localStorage.getItem('pixelArtHistory');
-    if (savedHistory) {
-      try {
-        const parsed = JSON.parse(savedHistory);
-        setHistory(parsed);
-      } catch (e) {
-        console.error('Failed to load history:', e);
+    try {
+      const savedHistory = localStorage.getItem('pixelArtHistory');
+      if (savedHistory) {
+        setHistory(JSON.parse(savedHistory));
       }
+    } catch (e) {
+      console.error('Failed to load history:', e);
     }
     
-    const savedDarkMode = localStorage.getItem('darkMode');
-    if (savedDarkMode !== null) {
-      setDarkMode(JSON.parse(savedDarkMode));
+    try {
+      const savedDarkMode = localStorage.getItem('darkMode');
+      if (savedDarkMode !== null) {
+        setDarkMode(JSON.parse(savedDarkMode));
+      }
+    } catch (e) {
+      console.error('Failed to load dark mode:', e);
     }
   }, []);
 
+  // Save history when it changes
   useEffect(() => {
-    localStorage.setItem('pixelArtHistory', JSON.stringify(history));
+    try {
+      localStorage.setItem('pixelArtHistory', JSON.stringify(history));
+    } catch (e) {
+      console.error('Failed to save history:', e);
+    }
   }, [history]);
 
+  // Apply dark mode class
   useEffect(() => {
-    localStorage.setItem('darkMode', JSON.stringify(darkMode));
-    if (darkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
+    try {
+      localStorage.setItem('darkMode', JSON.stringify(darkMode));
+      if (darkMode) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    } catch (e) {
+      console.error('Failed to save dark mode:', e);
     }
   }, [darkMode]);
 
-  const toggleSection = (section: string) => {
-    setActiveSection(activeSection === section ? null : section);
-  };
+  const handleImageUpload = useCallback((file: File) => {
+    if (!file || !file.type.startsWith('image/')) {
+      setError('Please upload a valid image file.');
+      return;
+    }
 
-  const handleImageUpload = (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const result = e.target?.result as string;
+      if (!result) {
+        setError('Failed to read the image file.');
+        return;
+      }
+      
       setSourceImage(result);
       setPixelatedImage(null);
       setColorUsage([]);
@@ -134,66 +152,79 @@ const App: React.FC = () => {
 
       const img = new Image();
       img.onload = () => {
-          const aspectRatio = img.width / img.height;
-          setSourceImageAspectRatio(aspectRatio);
-          if (settings.lockAspectRatio) {
-              setSettings(prev => ({
-                  ...prev,
-                  height: Math.max(1, Math.round(prev.width / aspectRatio)),
-              }));
-          }
+        const aspectRatio = img.width / img.height;
+        setSourceImageAspectRatio(aspectRatio);
+        if (settings.lockAspectRatio) {
+          setSettings(prev => ({
+            ...prev,
+            height: Math.max(1, Math.round(prev.width / aspectRatio)),
+          }));
+        }
+      };
+      img.onerror = () => {
+        setError('Failed to load the image.');
       };
       img.src = result;
     };
     reader.onerror = () => {
-        setError('Failed to read the image file.');
+      setError('Failed to read the image file.');
     };
     reader.readAsDataURL(file);
-  };
+  }, [settings.lockAspectRatio]);
 
   const handleFileDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     const file = e.dataTransfer.files?.[0];
     if (file && file.type.startsWith('image/')) {
       handleImageUpload(file);
     }
+  }, [handleImageUpload]);
+
+  const handleFileSelect = useCallback(() => {
+    fileInputRef.current?.click();
   }, []);
 
-  const handleFileSelect = () => {
-    fileInputRef.current?.click();
-  };
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      handleImageUpload(file);
+    }
+  }, [handleImageUpload]);
 
-  const handleSettingsChange = <K extends keyof PixelatorSettings>(
+  const handleSettingsChange = useCallback(<K extends keyof PixelatorSettings>(
     key: K,
     value: PixelatorSettings[K]
   ) => {
     setSettings(prev => {
-        const newSettings = { ...prev, [key]: value };
+      const newSettings = { ...prev, [key]: value };
 
-        if (newSettings.lockAspectRatio && sourceImageAspectRatio) {
-            if (key === 'width' && typeof value === 'number') {
-                newSettings.height = Math.max(1, Math.round(value / sourceImageAspectRatio));
-            } else if (key === 'height' && typeof value === 'number') {
-                newSettings.width = Math.max(1, Math.round(value * sourceImageAspectRatio));
-            }
+      if (newSettings.lockAspectRatio && sourceImageAspectRatio && typeof value === 'number') {
+        if (key === 'width') {
+          newSettings.height = Math.max(1, Math.round(value / sourceImageAspectRatio));
+        } else if (key === 'height') {
+          newSettings.width = Math.max(1, Math.round(value * sourceImageAspectRatio));
         }
-        
-        if (key === 'lockAspectRatio' && value === true && sourceImageAspectRatio) {
-             newSettings.height = Math.max(1, Math.round(newSettings.width / sourceImageAspectRatio));
-        }
+      }
+      
+      if (key === 'lockAspectRatio' && value === true && sourceImageAspectRatio) {
+        newSettings.height = Math.max(1, Math.round(newSettings.width / sourceImageAspectRatio));
+      }
 
-        return newSettings;
+      return newSettings;
     });
-  };
+  }, [sourceImageAspectRatio]);
 
   const runPixelation = useCallback(async () => {
     if (!sourceImage) {
       setError('Please upload an image first.');
       return;
     }
+    
     setIsLoading(true);
     setError(null);
     setPixelatedImage(null);
+    
     try {
       const result = await pixelate(sourceImage, settings, WPLACE_COLORS);
       setPixelatedImage(result.dataUrl);
@@ -235,16 +266,13 @@ const App: React.FC = () => {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       if (!ctx) {
-        console.error('Could not get canvas context for download.');
+        setError('Could not get canvas context for download.');
         return;
       }
 
       const scale = settings.outputResolution;
-      const w = img.width;
-      const h = img.height;
-
-      canvas.width = w * scale;
-      canvas.height = h * scale;
+      canvas.width = img.width * scale;
+      canvas.height = img.height * scale;
 
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
@@ -257,24 +285,28 @@ const App: React.FC = () => {
       document.body.removeChild(link);
     };
     img.onerror = () => {
-      console.error('Failed to load pixelated image for download.');
+      setError('Failed to load pixelated image for download.');
     };
     img.src = pixelatedImage;
   }, [pixelatedImage, settings.outputResolution]);
 
-  const clearHistory = () => {
+  const clearHistory = useCallback(() => {
     setHistory([]);
-    localStorage.removeItem('pixelArtHistory');
-  };
+    try {
+      localStorage.removeItem('pixelArtHistory');
+    } catch (e) {
+      console.error('Failed to clear history:', e);
+    }
+  }, []);
 
-  const loadFromHistory = (item: ImageHistoryItem) => {
+  const loadFromHistory = useCallback((item: ImageHistoryItem) => {
     setSourceImage(item.sourceImage);
     setPixelatedImage(item.pixelatedImage);
     setSettings(item.settings);
-    setShowHistory(false);
-  };
+    setColorUsage([]);
+  }, []);
 
-  const handlePreviewMouseDown = (e: React.MouseEvent) => {
+  const handlePreviewMouseDown = useCallback((e: React.MouseEvent) => {
     if (!previewContainerRef.current || !pixelatedImage) return;
     setIsDragging(true);
     const rect = previewContainerRef.current.getBoundingClientRect();
@@ -282,7 +314,7 @@ const App: React.FC = () => {
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
     };
-  };
+  }, [pixelatedImage]);
 
   const handlePreviewMouseMove = useCallback((e: MouseEvent) => {
     if (!isDragging || !previewContainerRef.current) return;
@@ -310,34 +342,37 @@ const App: React.FC = () => {
     }
   }, [isDragging, handlePreviewMouseMove, handlePreviewMouseUp]);
 
-  const memoizedWplaceColors = useMemo(() => WPLACE_COLORS, []);
-
-  const SectionHeader: React.FC<{ title: string; icon?: React.ReactNode; section: string }> = ({ title, icon, section }) => (
-    <button
-      onClick={() => toggleSection(section)}
-      className="w-full flex items-center justify-between py-3 px-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-lg transition-colors"
-    >
-      <div className="flex items-center gap-3">
-        {icon}
-        <span className="font-medium text-gray-700 dark:text-gray-200">{title}</span>
-      </div>
-      <div className={`transform transition-transform duration-200 ${activeSection === section ? 'rotate-180' : ''}`}>
-        <ChevronDownIcon />
-      </div>
-    </button>
-  );
+  const resetSettings = useCallback(() => {
+    setSettings({
+      width: 64,
+      height: 64,
+      previewX: 50,
+      previewY: 50,
+      opacity: 0.8,
+      showGrid: false,
+      previewSize: 500,
+      outputResolution: 10,
+      dithering: true,
+      lockAspectRatio: true,
+      brightness: 0,
+      contrast: 0,
+      saturation: 0,
+      zoom: 1,
+      darkMode: true,
+    });
+  }, []);
 
   return (
     <div className={`min-h-screen flex flex-col ${darkMode ? 'dark' : ''}`}>
       {/* Header */}
-      <header className="sticky top-0 z-50 glass bg-white/80 dark:bg-gray-900/80 border-b border-gray-200 dark:border-gray-800">
+      <header className="sticky top-0 z-50 backdrop-blur-md bg-white/80 dark:bg-gray-900/80 border-b border-gray-200 dark:border-gray-800">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
+          <div className="flex items-center justify-between h-14">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
+              <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center text-white">
                 <SparklesIcon />
               </div>
-              <h1 className="text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
+              <h1 className="text-lg font-semibold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
                 Pixel Art Studio
               </h1>
             </div>
@@ -354,179 +389,155 @@ const App: React.FC = () => {
 
       <main className="flex-1 flex overflow-hidden">
         {/* Sidebar */}
-        <aside className="w-80 lg:w-96 border-r border-gray-200 dark:border-gray-800 overflow-y-auto">
-          <div className="p-4 space-y-2">
+        <aside className="w-72 border-r border-gray-200 dark:border-gray-800 overflow-y-auto">
+          <div className="p-4 space-y-4">
             {/* Upload Section */}
-            <div className="card">
-              <SectionHeader 
-                title="Upload Image" 
-                section="upload"
-                icon={<UploadIcon />}
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+              <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Upload Image</h2>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleInputChange}
+                className="hidden"
               />
-              {activeSection === 'upload' && (
-                <div className="pt-2 animate-fadeIn">
-                  <div
-                    onDrop={handleFileDrop}
-                    onDragOver={(e) => e.preventDefault()}
-                    onClick={handleFileSelect}
-                    className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-8 text-center cursor-pointer hover:border-indigo-500 dark:hover:border-indigo-400 transition-colors"
-                  >
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={(e) => e.target.files?.[0] && handleImageUpload(e.target.files[0])}
-                      className="hidden"
-                    />
-                    <div className="flex flex-col items-center gap-3">
-                      <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center">
-                        <UploadIcon />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                          Drop an image or click to browse
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                          PNG, JPG, GIF, WebP
-                        </p>
-                      </div>
-                    </div>
+              <div
+                onDrop={handleFileDrop}
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onClick={handleFileSelect}
+                className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 text-center cursor-pointer hover:border-indigo-500 dark:hover:border-indigo-400 transition-colors"
+              >
+                <div className="flex flex-col items-center gap-3">
+                  <div className="text-gray-400 dark:text-gray-500">
+                    <UploadIcon />
                   </div>
-                  {sourceImage && (
-                    <div className="mt-4 relative group">
-                      <img src={sourceImage} alt="Source" className="w-full h-32 object-cover rounded-lg" />
-                      <button
-                        onClick={() => { setSourceImage(null); setPixelatedImage(null); }}
-                        className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <TrashIcon />
-                      </button>
-                    </div>
-                  )}
+                  <div>
+                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Drop image or click to browse
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      PNG, JPG, GIF, WebP
+                    </p>
+                  </div>
+                </div>
+              </div>
+              {sourceImage && (
+                <div className="mt-4 relative group">
+                  <img src={sourceImage} alt="Source" className="w-full h-24 object-cover rounded-lg" />
+                  <button
+                    onClick={() => { setSourceImage(null); setPixelatedImage(null); setColorUsage([]); }}
+                    className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <TrashIcon />
+                  </button>
                 </div>
               )}
             </div>
 
             {/* Settings Section */}
-            <div className="card">
-              <SectionHeader 
-                title="Settings" 
-                section="settings"
-                icon={
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                }
-              />
-              {activeSection === 'settings' && (
-                <div className="pt-2 space-y-4 animate-fadeIn">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Width</label>
-                      <input
-                        type="number"
-                        value={settings.width}
-                        onChange={(e) => handleSettingsChange('width', parseInt(e.target.value) || 1)}
-                        min={1}
-                        max={512}
-                        className="input-field text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Height</label>
-                      <input
-                        type="number"
-                        value={settings.height}
-                        onChange={(e) => handleSettingsChange('height', parseInt(e.target.value) || 1)}
-                        min={1}
-                        max={512}
-                        className="input-field text-sm"
-                      />
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-3">
-                    <label className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600 dark:text-gray-400">Lock Aspect Ratio</span>
-                      <input
-                        type="checkbox"
-                        checked={settings.lockAspectRatio}
-                        onChange={(e) => handleSettingsChange('lockAspectRatio', e.target.checked)}
-                        className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
-                      />
-                    </label>
-                    <label className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600 dark:text-gray-400">Dithering</span>
-                      <input
-                        type="checkbox"
-                        checked={settings.dithering}
-                        onChange={(e) => handleSettingsChange('dithering', e.target.checked)}
-                        className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
-                      />
-                    </label>
-                  </div>
-
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Settings</h2>
+                <button onClick={resetSettings} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Reset">
+                  <RefreshIcon />
+                </button>
+              </div>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <div className="flex justify-between mb-2">
-                      <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Output Resolution</label>
-                      <span className="text-xs text-gray-600 dark:text-gray-400">{settings.outputResolution}px</span>
-                    </div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Width</label>
                     <input
-                      type="range"
+                      type="number"
+                      value={settings.width}
+                      onChange={(e) => handleSettingsChange('width', parseInt(e.target.value) || 1)}
                       min={1}
-                      max={50}
-                      value={settings.outputResolution}
-                      onChange={(e) => handleSettingsChange('outputResolution', parseInt(e.target.value))}
-                      className="w-full"
+                      max={512}
+                      className="w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Height</label>
+                    <input
+                      type="number"
+                      value={settings.height}
+                      onChange={(e) => handleSettingsChange('height', parseInt(e.target.value) || 1)}
+                      min={1}
+                      max={512}
+                      className="w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                     />
                   </div>
                 </div>
-              )}
+                
+                <div className="space-y-2">
+                  <label className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600 dark:text-gray-400">Lock Aspect Ratio</span>
+                    <input
+                      type="checkbox"
+                      checked={settings.lockAspectRatio}
+                      onChange={(e) => handleSettingsChange('lockAspectRatio', e.target.checked)}
+                      className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
+                    />
+                  </label>
+                  <label className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600 dark:text-gray-400">Dithering</span>
+                    <input
+                      type="checkbox"
+                      checked={settings.dithering}
+                      onChange={(e) => handleSettingsChange('dithering', e.target.checked)}
+                      className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
+                    />
+                  </label>
+                </div>
+
+                <div>
+                  <div className="flex justify-between mb-2">
+                    <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Output Resolution</label>
+                    <span className="text-xs text-gray-600 dark:text-gray-400">{settings.outputResolution}px</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={1}
+                    max={50}
+                    value={settings.outputResolution}
+                    onChange={(e) => handleSettingsChange('outputResolution', parseInt(e.target.value))}
+                    className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Adjustments Section */}
-            <div className="card">
-              <SectionHeader 
-                title="Adjustments" 
-                section="adjustments"
-                icon={
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-                  </svg>
-                }
-              />
-              {activeSection === 'adjustments' && (
-                <div className="pt-2 space-y-4 animate-fadeIn">
-                  {[
-                    { label: 'Brightness', key: 'brightness' as const, min: -100, max: 100 },
-                    { label: 'Contrast', key: 'contrast' as const, min: -100, max: 100 },
-                    { label: 'Saturation', key: 'saturation' as const, min: -100, max: 100 },
-                  ].map(({ label, key, min, max }) => (
-                    <div key={label}>
-                      <div className="flex justify-between mb-2">
-                        <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</label>
-                        <span className="text-xs text-gray-600 dark:text-gray-400">{settings[key]}</span>
-                      </div>
-                      <input
-                        type="range"
-                        min={min}
-                        max={max}
-                        value={settings[key]}
-                        onChange={(e) => handleSettingsChange(key, parseInt(e.target.value))}
-                        className="w-full"
-                      />
+            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+              <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Adjustments</h2>
+              <div className="space-y-3">
+                {[
+                  { label: 'Brightness', key: 'brightness' as const },
+                  { label: 'Contrast', key: 'contrast' as const },
+                  { label: 'Saturation', key: 'saturation' as const },
+                ].map(({ label, key }) => (
+                  <div key={label}>
+                    <div className="flex justify-between mb-2">
+                      <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</label>
+                      <span className="text-xs text-gray-600 dark:text-gray-400">{settings[key]}</span>
                     </div>
-                  ))}
-                </div>
-              )}
+                    <input
+                      type="range"
+                      min={-100}
+                      max={100}
+                      value={settings[key]}
+                      onChange={(e) => handleSettingsChange(key, parseInt(e.target.value))}
+                      className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* Generate Button */}
             <button
               onClick={runPixelation}
               disabled={isLoading || !sourceImage}
-              className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-medium py-2.5 px-4 rounded-lg shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-2"
             >
               {isLoading ? (
                 <>
@@ -546,12 +557,12 @@ const App: React.FC = () => {
 
             {/* Download Section */}
             {pixelatedImage && (
-              <div className="card animate-fadeIn">
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
                 <div className="flex gap-2">
                   <select
                     value={exportFormat}
                     onChange={(e) => setExportFormat(e.target.value as ExportFormat)}
-                    className="input-field text-sm flex-1"
+                    className="flex-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500"
                   >
                     <option value="png">PNG</option>
                     <option value="jpeg">JPEG</option>
@@ -559,7 +570,7 @@ const App: React.FC = () => {
                   </select>
                   <button
                     onClick={() => handleDownload(exportFormat)}
-                    className="btn-secondary flex items-center gap-2"
+                    className="bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 font-medium py-2 px-4 rounded-lg border border-gray-200 dark:border-gray-600 shadow-sm hover:shadow-md transition-all flex items-center gap-2"
                   >
                     <DownloadIcon />
                     Download
@@ -570,9 +581,9 @@ const App: React.FC = () => {
 
             {/* Color Usage */}
             {colorUsage.length > 0 && (
-              <div className="card">
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
                 <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Top Colors</h3>
-                <div className="space-y-2 max-h-40 overflow-y-auto">
+                <div className="space-y-2 max-h-32 overflow-y-auto">
                   {colorUsage.slice(0, 5).map((usage, index) => (
                     <div key={index} className="flex items-center justify-between text-sm">
                       <div className="flex items-center gap-2">
@@ -587,23 +598,14 @@ const App: React.FC = () => {
             )}
 
             {/* History Section */}
-            <div className="card">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <HistoryIcon />
-                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">History</h3>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">({history.length})</span>
-                </div>
-                {history.length > 0 && (
-                  <button
-                    onClick={clearHistory}
-                    className="text-xs text-red-500 hover:text-red-600 transition-colors"
-                  >
+            {history.length > 0 && (
+              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">History ({history.length})</h3>
+                  <button onClick={clearHistory} className="text-xs text-red-500 hover:text-red-600 transition-colors">
                     Clear
                   </button>
-                )}
-              </div>
-              {history.length > 0 && (
+                </div>
                 <div className="grid grid-cols-4 gap-2">
                   {history.slice(0, 8).map((item) => (
                     <button
@@ -615,8 +617,8 @@ const App: React.FC = () => {
                     </button>
                   ))}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </aside>
 
@@ -637,7 +639,7 @@ const App: React.FC = () => {
           {!sourceImage && !pixelatedImage && (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-center">
-                <div className="w-20 h-20 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
+                <div className="w-24 h-24 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400 dark:text-gray-500">
                   <UploadIcon />
                 </div>
                 <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2">
@@ -690,7 +692,7 @@ const App: React.FC = () => {
 
           {/* Preview Controls */}
           {pixelatedImage && (
-            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 glass bg-white/90 dark:bg-gray-800/90 rounded-full px-4 py-2 flex items-center gap-4 shadow-lg">
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 backdrop-blur-md bg-white/90 dark:bg-gray-800/90 rounded-full px-4 py-2 flex items-center gap-4 shadow-lg">
               <div className="flex items-center gap-2">
                 <label className="text-xs text-gray-600 dark:text-gray-400">Size</label>
                 <input
@@ -699,7 +701,7 @@ const App: React.FC = () => {
                   max={800}
                   value={settings.previewSize}
                   onChange={(e) => handleSettingsChange('previewSize', parseInt(e.target.value))}
-                  className="w-24"
+                  className="w-24 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
                 />
               </div>
               <div className="w-px h-6 bg-gray-300 dark:bg-gray-600" />
@@ -710,7 +712,9 @@ const App: React.FC = () => {
                   onChange={(e) => handleSettingsChange('showGrid', e.target.checked)}
                   className="w-4 h-4 text-indigo-600 rounded"
                 />
-                <span className="text-xs text-gray-600 dark:text-gray-400">Grid</span>
+                <span className="text-xs text-gray-600 dark:text-gray-400 flex items-center gap-1">
+                  <GridIcon /> Grid
+                </span>
               </label>
               <div className="w-px h-6 bg-gray-300 dark:bg-gray-600" />
               <div className="flex items-center gap-2">
@@ -722,7 +726,7 @@ const App: React.FC = () => {
                   step={0.1}
                   value={settings.opacity}
                   onChange={(e) => handleSettingsChange('opacity', parseFloat(e.target.value))}
-                  className="w-20"
+                  className="w-20 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
                 />
               </div>
             </div>
@@ -731,12 +735,19 @@ const App: React.FC = () => {
       </main>
 
       <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(-10px); }
-          to { opacity: 1; transform: translateY(0); }
+        .bg-grid-pattern {
+          background-image: 
+            linear-gradient(to right, rgba(0,0,0,0.05) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(0,0,0,0.05) 1px, transparent 1px);
+          background-size: 20px 20px;
         }
-        .animate-fadeIn {
-          animation: fadeIn 0.2s ease-out;
+        .dark .bg-grid-pattern {
+          background-image: 
+            linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+            linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+        }
+        input[type="range"]::-webkit-slider-thumb {
+          @apply w-4 h-4 bg-indigo-500 rounded-full appearance-none cursor-pointer shadow-md hover:scale-110 transition-transform duration-200;
         }
       `}</style>
     </div>
