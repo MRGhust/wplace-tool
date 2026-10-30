@@ -1,166 +1,158 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { pixelate } from './services/pixelator';
-import type { PixelatorSettings, ImageHistoryItem, ColorUsage, ExportFormat } from './types';
-import { WPLACE_COLORS } from './constants';
+import {
+  pixelate,
+  renderMatrixToDataUrl,
+  calculateMatrixColorUsage,
+  createThumbnailDataUrl,
+} from './services/pixelator';
+import type {
+  PixelatorSettings,
+  ImageHistoryItem,
+  ColorUsage,
+  ExportFormat,
+  WplaceColor,
+  CanvasTool,
+  ViewComparisonMode,
+  InspectedPixel,
+  DitherAlgorithm,
+  ColorSpaceMode,
+} from './types';
+import { WPLACE_COLORS, PALETTE_PRESETS, SAMPLE_PRESETS } from './constants';
+import { WplacePalette } from './components/WplacePalette';
 
-// ============================================================================
-// ICON COMPONENTS - Minimal SVG Icons
-// ============================================================================
-
-const SunIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-  </svg>
-);
-
-const MoonIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
-  </svg>
-);
-
-const UploadIcon = () => (
-  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-  </svg>
-);
-
-const DownloadIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-  </svg>
-);
-
-const SparklesIcon = () => (
-  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-  </svg>
-);
-
-const TrashIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-  </svg>
-);
-
-const GridIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-  </svg>
-);
-
-const RefreshIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-  </svg>
-);
-
-const ImageIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-  </svg>
-);
-
-const SettingsIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-  </svg>
-);
-
-const PaletteIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
-  </svg>
-);
-
-const HistoryIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-  </svg>
-);
-
-const CloseIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
-  </svg>
-);
-
-const MoveIcon = () => (
-  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-  </svg>
-);
+const DEFAULT_SETTINGS: PixelatorSettings = {
+  width: 64,
+  height: 64,
+  previewX: 0,
+  previewY: 0,
+  opacity: 1,
+  showGrid: true,
+  showMajorGrid: true,
+  majorGridInterval: 8,
+  previewSize: 512,
+  outputResolution: 12,
+  dithering: true,
+  ditherAlgorithm: 'floyd-steinberg',
+  ditherStrength: 75,
+  colorSpace: 'perceptual',
+  lockAspectRatio: true,
+  brightness: 0,
+  contrast: 0,
+  saturation: 0,
+  sharpness: 15,
+  preserveTransparency: true,
+  backgroundColor: '#FFFFFF',
+  originX: 1000,
+  originY: 1000,
+  autoUpdate: true,
+  zoom: 1,
+  darkMode: true,
+};
 
 const App: React.FC = () => {
+  // Core image & matrix state
   const [sourceImage, setSourceImage] = useState<string | null>(null);
+  const [sourceImageName, setSourceImageName] = useState<string>('Alpine Sunset');
+  const [sourceImageAspectRatio, setSourceImageAspectRatio] = useState<number | null>(1);
+  const [basePixelMatrix, setBasePixelMatrix] = useState<(string | null)[][]>([]);
   const [pixelatedImage, setPixelatedImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sourceImageAspectRatio, setSourceImageAspectRatio] = useState<number | null>(null);
-  const [colorUsage, setColorUsage] = useState<ColorUsage[]>([]);
-  const [history, setHistory] = useState<ImageHistoryItem[]>([]);
-  const [exportFormat, setExportFormat] = useState<ExportFormat>('png');
-  const [darkMode, setDarkMode] = useState(true);
-  
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const previewContainerRef = useRef<HTMLDivElement>(null);
-  const [previewPosition, setPreviewPosition] = useState({ x: 50, y: 50 });
-  const [isDragging, setIsDragging] = useState(false);
-  const dragOffset = useRef({ x: 0, y: 0 });
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const [settings, setSettings] = useState<PixelatorSettings>({
-    width: 64,
-    height: 64,
-    previewX: 50,
-    previewY: 50,
-    opacity: 0.8,
-    showGrid: false,
-    previewSize: 500,
-    outputResolution: 10,
-    dithering: true,
-    lockAspectRatio: true,
-    brightness: 0,
-    contrast: 0,
-    saturation: 0,
-    zoom: 1,
-    darkMode: true,
+  // Undo / Redo stacks for manual pixel edits
+  const [undoStack, setUndoStack] = useState<(string | null)[][][]>([]);
+  const [redoStack, setRedoStack] = useState<(string | null)[][][]>([]);
+
+  // Palette & Wplace Guide state
+  const [activeBrushColor, setActiveBrushColor] = useState<WplaceColor>(WPLACE_COLORS[25]); // Crimson Red
+  const [disabledHexes, setDisabledHexes] = useState<Set<string>>(new Set());
+  const [highlightedHex, setHighlightedHex] = useState<string | null>(null);
+  const [completedHexes, setCompletedHexes] = useState<Set<string>>(new Set());
+  const [paletteMode, setPaletteMode] = useState<'brush' | 'filter'>('brush');
+  const [colorSearch, setColorSearch] = useState('');
+
+  // Workspace UI & Navigation state
+  const [activeNavTab, setActiveNavTab] = useState<'studio' | 'palette' | 'blueprint' | 'history'>('studio');
+  const [activeTool, setActiveTool] = useState<CanvasTool>('inspect');
+  const [comparisonMode, setComparisonMode] = useState<ViewComparisonMode>('pixel');
+  const [splitPosition, setSplitPosition] = useState<number>(50);
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('png');
+  const [exportWithGrid, setExportWithGrid] = useState<boolean>(false);
+  const [showExportModal, setShowExportModal] = useState<boolean>(false);
+  const [darkMode, setDarkMode] = useState<boolean>(true);
+  const [history, setHistory] = useState<ImageHistoryItem[]>([]);
+
+  // Canvas Pan, Zoom & Inspection state
+  const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState<boolean>(false);
+  const [isPainting, setIsPainting] = useState<boolean>(false);
+  const panStartRef = useRef<{ clientX: number; clientY: number; startX: number; startY: number }>({
+    clientX: 0,
+    clientY: 0,
+    startX: 0,
+    startY: 0,
   });
-  
-  // Load saved data on mount
+  const [hoveredPixel, setHoveredPixel] = useState<InspectedPixel | null>(null);
+  const [pinnedPixel, setPinnedPixel] = useState<InspectedPixel | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const artWrapperRef = useRef<HTMLDivElement>(null);
+  const gridCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  const [settings, setSettings] = useState<PixelatorSettings>(DEFAULT_SETTINGS);
+
+  const showToast = useCallback((msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((prev) => (prev === msg ? null : prev));
+    }, 2600);
+  }, []);
+
+  // Load saved history and theme on mount, plus load default sample so studio is immediately alive
   useEffect(() => {
     try {
-      const savedHistory = localStorage.getItem('pixelArtHistory');
+      const savedHistory = localStorage.getItem('wplacePixelHistory_v2');
       if (savedHistory) {
         setHistory(JSON.parse(savedHistory));
       }
     } catch (e) {
       console.error('Failed to load history:', e);
     }
-    
+
     try {
-      const savedDarkMode = localStorage.getItem('darkMode');
+      const savedDarkMode = localStorage.getItem('wplaceDarkMode');
       if (savedDarkMode !== null) {
         setDarkMode(JSON.parse(savedDarkMode));
       }
     } catch (e) {
       console.error('Failed to load dark mode:', e);
     }
+
+    // Load initial procedural preset so user immediately sees a rich working canvas
+    const initialPreset = SAMPLE_PRESETS[0];
+    if (initialPreset) {
+      const url = initialPreset.generateDataUrl();
+      setSourceImage(url);
+      setSourceImageName(initialPreset.name);
+      setSourceImageAspectRatio(1);
+    }
   }, []);
 
-  // Save history when it changes
+  // Save history safely with compact thumbnails
   useEffect(() => {
     try {
-      localStorage.setItem('pixelArtHistory', JSON.stringify(history));
+      localStorage.setItem('wplacePixelHistory_v2', JSON.stringify(history.slice(0, 12)));
     } catch (e) {
-      console.error('Failed to save history:', e);
+      console.warn('History storage quota reached, trimming history:', e);
     }
   }, [history]);
 
-  // Apply dark mode class
+  // Apply dark mode class to <html>
   useEffect(() => {
     try {
-      localStorage.setItem('darkMode', JSON.stringify(darkMode));
+      localStorage.setItem('wplaceDarkMode', JSON.stringify(darkMode));
       if (darkMode) {
         document.documentElement.classList.add('dark');
       } else {
@@ -171,625 +163,2075 @@ const App: React.FC = () => {
     }
   }, [darkMode]);
 
-  const handleImageUpload = useCallback((file: File) => {
-    if (!file || !file.type.startsWith('image/')) {
-      setError('Please upload a valid image file.');
-      return;
-    }
+  // Compute active palette colors
+  const activePaletteColors = useMemo(() => {
+    const filtered = WPLACE_COLORS.filter((c) => !disabledHexes.has(c.hex));
+    return filtered.length > 0 ? filtered : [WPLACE_COLORS[0]];
+  }, [disabledHexes]);
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      if (!result) {
-        setError('Failed to read the image file.');
+  // Compute color usage dynamically from basePixelMatrix
+  const colorUsage = useMemo<ColorUsage[]>(() => {
+    if (!basePixelMatrix.length) return [];
+    const { colorUsage: usageMap, totalPixels } = calculateMatrixColorUsage(basePixelMatrix);
+    const list: ColorUsage[] = [];
+    usageMap.forEach((count, hex) => {
+      const color = WPLACE_COLORS.find((c) => c.hex.toUpperCase() === hex.toUpperCase());
+      if (color) {
+        list.push({
+          color,
+          count,
+          percentage: (count / totalPixels) * 100,
+        });
+      }
+    });
+    list.sort((a, b) => b.count - a.count);
+    return list;
+  }, [basePixelMatrix]);
+
+  // Re-render displayed dataUrl whenever basePixelMatrix, highlightedHex, or completedHexes changes
+  useEffect(() => {
+    if (!basePixelMatrix.length) return;
+    const url = renderMatrixToDataUrl(basePixelMatrix, highlightedHex, completedHexes);
+    setPixelatedImage(url);
+  }, [basePixelMatrix, highlightedHex, completedHexes]);
+
+  // Core Pixelation execution
+  const runPixelation = useCallback(
+    async (saveToHistory = false) => {
+      if (!sourceImage) {
+        setError('Please upload an image or choose a preset first.');
         return;
       }
-      
-      setSourceImage(result);
-      setPixelatedImage(null);
-      setColorUsage([]);
+
+      setIsLoading(true);
       setError(null);
 
-      const img = new Image();
-      img.onload = () => {
-        const aspectRatio = img.width / img.height;
-        setSourceImageAspectRatio(aspectRatio);
-        if (settings.lockAspectRatio) {
-          setSettings(prev => ({
-            ...prev,
-            height: Math.max(1, Math.round(prev.width / aspectRatio)),
-          }));
+      try {
+        const result = await pixelate(sourceImage, settings, activePaletteColors);
+        setBasePixelMatrix(result.pixelMatrix);
+        setUndoStack([]);
+        setRedoStack([]);
+
+        if (saveToHistory) {
+          const thumb = await createThumbnailDataUrl(sourceImage, 96);
+          const summary: { hex: string; count: number }[] = [];
+          result.colorUsage.forEach((count, hex) => summary.push({ hex, count }));
+          summary.sort((a, b) => b.count - a.count);
+
+          const historyItem: ImageHistoryItem = {
+            id: Date.now().toString(),
+            name: sourceImageName || 'Untitled Artwork',
+            thumbnail: thumb || result.dataUrl,
+            pixelatedImage: result.dataUrl,
+            pixelMatrix: result.pixelMatrix,
+            settings: { ...settings },
+            colorUsageSummary: summary.slice(0, 8),
+            timestamp: Date.now(),
+          };
+          setHistory((prev) => [historyItem, ...prev].slice(0, 12));
         }
-      };
-      img.onerror = () => {
-        setError('Failed to load the image.');
-      };
-      img.src = result;
-    };
-    reader.onerror = () => {
-      setError('Failed to read the image file.');
-    };
-    reader.readAsDataURL(file);
-  }, [settings.lockAspectRatio]);
-
-  const handleFileDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const file = e.dataTransfer.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      handleImageUpload(file);
-    }
-  }, [handleImageUpload]);
-
-  const handleFileSelect = useCallback(() => {
-    fileInputRef.current?.click();
-  }, []);
-
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      handleImageUpload(file);
-    }
-  }, [handleImageUpload]);
-
-  const handleSettingsChange = useCallback(<K extends keyof PixelatorSettings>(
-    key: K,
-    value: PixelatorSettings[K]
-  ) => {
-    setSettings(prev => {
-      const newSettings = { ...prev, [key]: value };
-
-      if (newSettings.lockAspectRatio && sourceImageAspectRatio && typeof value === 'number') {
-        if (key === 'width') {
-          newSettings.height = Math.max(1, Math.round(value / sourceImageAspectRatio));
-        } else if (key === 'height') {
-          newSettings.width = Math.max(1, Math.round(value * sourceImageAspectRatio));
-        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'An error occurred during pixelation.');
+      } finally {
+        setIsLoading(false);
       }
-      
-      if (key === 'lockAspectRatio' && value === true && sourceImageAspectRatio) {
-        newSettings.height = Math.max(1, Math.round(newSettings.width / sourceImageAspectRatio));
-      }
+    },
+    [sourceImage, sourceImageName, settings, activePaletteColors]
+  );
 
-      return newSettings;
-    });
-  }, [sourceImageAspectRatio]);
+  // Auto-update debounce when settings or activePaletteColors change
+  useEffect(() => {
+    if (!sourceImage || !settings.autoUpdate) return;
+    const timer = setTimeout(() => {
+      runPixelation(false);
+    }, 140);
+    return () => clearTimeout(timer);
+  }, [
+    sourceImage,
+    settings.width,
+    settings.height,
+    settings.dithering,
+    settings.ditherAlgorithm,
+    settings.ditherStrength,
+    settings.colorSpace,
+    settings.brightness,
+    settings.contrast,
+    settings.saturation,
+    settings.sharpness,
+    settings.preserveTransparency,
+    settings.backgroundColor,
+    settings.autoUpdate,
+    activePaletteColors,
+    runPixelation,
+  ]);
 
-  const runPixelation = useCallback(async () => {
-    if (!sourceImage) {
-      setError('Please upload an image first.');
-      return;
-    }
-    
-    setIsLoading(true);
-    setError(null);
-    setPixelatedImage(null);
-    
-    try {
-      const result = await pixelate(sourceImage, settings, WPLACE_COLORS);
-      setPixelatedImage(result.dataUrl);
-      
-      const colorUsageArray: ColorUsage[] = [];
-      result.colorUsage.forEach((count, hex) => {
-        const color = WPLACE_COLORS.find(c => c.hex === hex);
-        if (color) {
-          colorUsageArray.push({
-            color,
-            count,
-            percentage: (count / result.totalPixels) * 100
-          });
-        }
-      });
-      colorUsageArray.sort((a, b) => b.count - a.count);
-      setColorUsage(colorUsageArray);
-      
-      const historyItem: ImageHistoryItem = {
-        id: Date.now().toString(),
-        sourceImage,
-        pixelatedImage: result.dataUrl,
-        settings: { ...settings },
-        timestamp: Date.now()
-      };
-      setHistory(prev => [historyItem, ...prev].slice(0, 20));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unknown error occurred during pixelation.');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [sourceImage, settings]);
-  
-  const handleDownload = useCallback((format: ExportFormat = 'png') => {
-    if (!pixelatedImage) return;
-
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        setError('Could not get canvas context for download.');
+  // Upload image handler
+  const handleImageUpload = useCallback(
+    (file: File) => {
+      if (!file || !file.type.startsWith('image/')) {
+        setError('Please upload a valid image file (PNG, JPG, GIF, WebP).');
         return;
       }
 
-      const scale = settings.outputResolution;
-      canvas.width = img.width * scale;
-      canvas.height = img.height * scale;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const result = e.target?.result as string;
+        if (!result) {
+          setError('Failed to read the image file.');
+          return;
+        }
 
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const cleanName = file.name.replace(/\.[^/.]+$/, '');
+        setSourceImageName(cleanName);
+        setSourceImage(result);
+        setError(null);
+        setHighlightedHex(null);
+        setCompletedHexes(new Set());
+
+        const img = new Image();
+        img.onload = () => {
+          const aspectRatio = img.width / img.height;
+          setSourceImageAspectRatio(aspectRatio);
+          setSettings((prev) => ({
+            ...prev,
+            height: prev.lockAspectRatio
+              ? Math.max(1, Math.min(512, Math.round(prev.width / aspectRatio)))
+              : prev.height,
+          }));
+        };
+        img.onerror = () => {
+          setError('Failed to decode the uploaded image.');
+        };
+        img.src = result;
+      };
+      reader.readAsDataURL(file);
+    },
+    []
+  );
+
+  const handleLoadSamplePreset = useCallback((presetId: string) => {
+    const preset = SAMPLE_PRESETS.find((p) => p.id === presetId);
+    if (!preset) return;
+    const dataUrl = preset.generateDataUrl();
+    setSourceImageName(preset.name);
+    setSourceImage(dataUrl);
+    setSourceImageAspectRatio(preset.width / preset.height);
+    setHighlightedHex(null);
+    setCompletedHexes(new Set());
+    setSettings((prev) => ({
+      ...prev,
+      width: preset.width,
+      height: preset.height,
+    }));
+    showToast(`Loaded "${preset.name}" sample`);
+  }, [showToast]);
+
+  const handleSettingsChange = useCallback(
+    <K extends keyof PixelatorSettings>(key: K, value: PixelatorSettings[K]) => {
+      setSettings((prev) => {
+        const next = { ...prev, [key]: value };
+        if (next.lockAspectRatio && sourceImageAspectRatio && typeof value === 'number') {
+          if (key === 'width') {
+            next.height = Math.max(1, Math.min(512, Math.round(value / sourceImageAspectRatio)));
+          } else if (key === 'height') {
+            next.width = Math.max(1, Math.min(512, Math.round(value * sourceImageAspectRatio)));
+          }
+        }
+        if (key === 'lockAspectRatio' && value === true && sourceImageAspectRatio) {
+          next.height = Math.max(1, Math.min(512, Math.round(next.width / sourceImageAspectRatio)));
+        }
+        return next;
+      });
+    },
+    [sourceImageAspectRatio]
+  );
+
+  // Draw crisp pixel & major grid overlay on HTML5 Canvas
+  const actualMatrixHeight = basePixelMatrix.length || settings.height;
+  const actualMatrixWidth = (basePixelMatrix[0] && basePixelMatrix[0].length) || settings.width;
+  const displayWidth = settings.previewSize * settings.zoom;
+  const displayHeight = displayWidth * (actualMatrixHeight / Math.max(1, actualMatrixWidth));
+
+  useEffect(() => {
+    const canvas = gridCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(displayWidth * dpr);
+    canvas.height = Math.round(displayHeight * dpr);
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, displayWidth, displayHeight);
+
+    const cellW = displayWidth / actualMatrixWidth;
+    const cellH = displayHeight / actualMatrixHeight;
+
+    // 1. Standard 1px cell grid (only draw if cells are >= 4px wide so it stays crisp)
+    if (settings.showGrid && cellW >= 4) {
+      ctx.beginPath();
+      ctx.strokeStyle = darkMode ? 'rgba(255, 255, 255, 0.16)' : 'rgba(15, 23, 42, 0.16)';
+      ctx.lineWidth = 1;
+
+      for (let x = 1; x < actualMatrixWidth; x++) {
+        const px = Math.floor(x * cellW) + 0.5;
+        ctx.moveTo(px, 0);
+        ctx.lineTo(px, displayHeight);
+      }
+      for (let y = 1; y < actualMatrixHeight; y++) {
+        const py = Math.floor(y * cellH) + 0.5;
+        ctx.moveTo(0, py);
+        ctx.lineTo(displayWidth, py);
+      }
+      ctx.stroke();
+    }
+
+    // 2. Major guide grid (every N pixels, e.g. 8x8 or 10x10 Wplace chunks)
+    if (settings.showMajorGrid && settings.majorGridInterval > 1) {
+      const step = settings.majorGridInterval;
+      ctx.beginPath();
+      ctx.strokeStyle = darkMode ? 'rgba(99, 102, 241, 0.55)' : 'rgba(79, 70, 229, 0.55)';
+      ctx.lineWidth = 1.25;
+
+      for (let x = step; x < actualMatrixWidth; x += step) {
+        const px = Math.floor(x * cellW) + 0.5;
+        ctx.moveTo(px, 0);
+        ctx.lineTo(px, displayHeight);
+      }
+      for (let y = step; y < actualMatrixHeight; y += step) {
+        const py = Math.floor(y * cellH) + 0.5;
+        ctx.moveTo(0, py);
+        ctx.lineTo(displayWidth, py);
+      }
+      ctx.stroke();
+    }
+
+    // 3. Highlight hovered or pinned pixel cell
+    const activeTarget = hoveredPixel || pinnedPixel;
+    if (activeTarget) {
+      const rx = activeTarget.x * cellW;
+      const ry = activeTarget.y * cellH;
+      ctx.strokeStyle = '#F59E0B';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(rx + 1, ry + 1, Math.max(2, cellW - 2), Math.max(2, cellH - 2));
+    }
+  }, [
+    displayWidth,
+    displayHeight,
+    actualMatrixWidth,
+    actualMatrixHeight,
+    settings.showGrid,
+    settings.showMajorGrid,
+    settings.majorGridInterval,
+    darkMode,
+    hoveredPixel,
+    pinnedPixel,
+  ]);
+
+  // Flood fill algorithm for Bucket tool
+  const floodFillMatrix = useCallback(
+    (matrix: (string | null)[][], startX: number, startY: number, newHex: string | null) => {
+      const h = matrix.length;
+      const w = h > 0 ? matrix[0].length : 0;
+      if (startY < 0 || startY >= h || startX < 0 || startX >= w) return matrix;
+
+      const targetHex = matrix[startY][startX];
+      if (targetHex === newHex) return matrix;
+
+      const clone = matrix.map((row) => [...row]);
+      const queue: [number, number][] = [[startX, startY]];
+      const visited = new Set<string>();
+
+      while (queue.length > 0) {
+        const [cx, cy] = queue.pop()!;
+        const key = `${cx},${cy}`;
+        if (visited.has(key)) continue;
+        visited.add(key);
+
+        if (cx < 0 || cx >= w || cy < 0 || cy >= h) continue;
+        if (clone[cy][cx] !== targetHex) continue;
+
+        clone[cy][cx] = newHex;
+        queue.push([cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]);
+      }
+      return clone;
+    },
+    []
+  );
+
+  // Apply tool action at pixel coordinate (x, y)
+  const applyToolAtPixel = useCallback(
+    (x: number, y: number, isFirstClick: boolean) => {
+      if (!basePixelMatrix.length) return;
+      if (y < 0 || y >= basePixelMatrix.length || x < 0 || x >= basePixelMatrix[0].length) return;
+
+      const currentHex = basePixelMatrix[y][x];
+      const matchedColor = currentHex
+        ? WPLACE_COLORS.find((c) => c.hex.toUpperCase() === currentHex.toUpperCase()) || null
+        : null;
+
+      if (activeTool === 'inspect') {
+        if (isFirstClick) {
+          setPinnedPixel((prev) =>
+            prev && prev.x === x && prev.y === y
+              ? null
+              : {
+                  x,
+                  y,
+                  worldX: settings.originX + x,
+                  worldY: settings.originY + y,
+                  color: matchedColor,
+                }
+          );
+        }
+        return;
+      }
+
+      if (activeTool === 'eyedropper') {
+        if (matchedColor) {
+          setActiveBrushColor(matchedColor);
+          setActiveTool('pencil');
+          showToast(`Picked #${matchedColor.id} ${matchedColor.name}`);
+        }
+        return;
+      }
+
+      if (activeTool === 'pencil' || activeTool === 'eraser') {
+        const targetHex = activeTool === 'eraser' ? null : activeBrushColor.hex;
+        if (currentHex === targetHex) return;
+
+        if (isFirstClick) {
+          setUndoStack((prev) => [...prev.slice(-29), basePixelMatrix.map((r) => [...r])]);
+          setRedoStack([]);
+        }
+
+        setBasePixelMatrix((prev) => {
+          const next = prev.map((r) => [...r]);
+          next[y][x] = targetHex;
+          return next;
+        });
+        return;
+      }
+
+      if (activeTool === 'bucket' && isFirstClick) {
+        const targetHex = activeBrushColor.hex;
+        if (currentHex === targetHex) return;
+        setUndoStack((prev) => [...prev.slice(-29), basePixelMatrix.map((r) => [...r])]);
+        setRedoStack([]);
+        setBasePixelMatrix((prev) => floodFillMatrix(prev, x, y, targetHex));
+      }
+    },
+    [
+      basePixelMatrix,
+      activeTool,
+      activeBrushColor,
+      settings.originX,
+      settings.originY,
+      floodFillMatrix,
+      showToast,
+    ]
+  );
+
+  const handleUndo = useCallback(() => {
+    if (undoStack.length === 0) return;
+    const previous = undoStack[undoStack.length - 1];
+    setRedoStack((prev) => [...prev, basePixelMatrix.map((r) => [...r])]);
+    setBasePixelMatrix(previous);
+    setUndoStack((prev) => prev.slice(0, -1));
+  }, [undoStack, basePixelMatrix]);
+
+  const handleRedo = useCallback(() => {
+    if (redoStack.length === 0) return;
+    const next = redoStack[redoStack.length - 1];
+    setUndoStack((prev) => [...prev, basePixelMatrix.map((r) => [...r])]);
+    setBasePixelMatrix(next);
+    setRedoStack((prev) => prev.slice(0, -1));
+  }, [redoStack, basePixelMatrix]);
+
+  // Keyboard shortcuts (Ctrl+Z, Ctrl+Y, Spacebar or tool hotkeys)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) handleRedo();
+        else handleUndo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        handleRedo();
+      } else if (e.key === 'Escape') {
+        setHighlightedHex(null);
+        setPinnedPixel(null);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [handleUndo, handleRedo]);
+
+  // Helper to convert mouse event to grid (x, y)
+  const getPixelCoordsFromEvent = useCallback(
+    (e: React.MouseEvent | MouseEvent): { x: number; y: number } | null => {
+      if (!artWrapperRef.current || !basePixelMatrix.length) return null;
+      const rect = artWrapperRef.current.getBoundingClientRect();
+      const relX = e.clientX - rect.left;
+      const relY = e.clientY - rect.top;
+      if (relX < 0 || relY < 0 || relX >= rect.width || relY >= rect.height) return null;
+
+      const x = Math.min(
+        actualMatrixWidth - 1,
+        Math.max(0, Math.floor((relX / rect.width) * actualMatrixWidth))
+      );
+      const y = Math.min(
+        actualMatrixHeight - 1,
+        Math.max(0, Math.floor((relY / rect.height) * actualMatrixHeight))
+      );
+      return { x, y };
+    },
+    [basePixelMatrix.length, actualMatrixWidth, actualMatrixHeight]
+  );
+
+  // Viewport Mouse Down (handles Pan or Paint/Inspect)
+  const handleViewportMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (e.button === 1 || activeTool === 'pan') {
+        setIsPanning(true);
+        panStartRef.current = {
+          clientX: e.clientX,
+          clientY: e.clientY,
+          startX: panOffset.x,
+          startY: panOffset.y,
+        };
+        return;
+      }
+
+      const coords = getPixelCoordsFromEvent(e);
+      if (coords) {
+        setIsPainting(true);
+        applyToolAtPixel(coords.x, coords.y, true);
+      } else {
+        // Clicked on empty background around the canvas -> pan smoothly
+        setIsPanning(true);
+        panStartRef.current = {
+          clientX: e.clientX,
+          clientY: e.clientY,
+          startX: panOffset.x,
+          startY: panOffset.y,
+        };
+      }
+    },
+    [activeTool, panOffset, getPixelCoordsFromEvent, applyToolAtPixel]
+  );
+
+  const handleViewportMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (isPanning) {
+        const dx = e.clientX - panStartRef.current.clientX;
+        const dy = e.clientY - panStartRef.current.clientY;
+        setPanOffset({
+          x: panStartRef.current.startX + dx,
+          y: panStartRef.current.startY + dy,
+        });
+        return;
+      }
+
+      const coords = getPixelCoordsFromEvent(e);
+      if (coords && basePixelMatrix.length) {
+        const hex = basePixelMatrix[coords.y]?.[coords.x] || null;
+        const color = hex
+          ? WPLACE_COLORS.find((c) => c.hex.toUpperCase() === hex.toUpperCase()) || null
+          : null;
+        setHoveredPixel({
+          x: coords.x,
+          y: coords.y,
+          worldX: settings.originX + coords.x,
+          worldY: settings.originY + coords.y,
+          color,
+        });
+
+        if (isPainting && (activeTool === 'pencil' || activeTool === 'eraser')) {
+          applyToolAtPixel(coords.x, coords.y, false);
+        }
+      } else {
+        setHoveredPixel(null);
+      }
+    },
+    [
+      isPanning,
+      isPainting,
+      activeTool,
+      getPixelCoordsFromEvent,
+      basePixelMatrix,
+      settings.originX,
+      settings.originY,
+      applyToolAtPixel,
+    ]
+  );
+
+  useEffect(() => {
+    const onWindowMouseUp = () => {
+      setIsPanning(false);
+      setIsPainting(false);
+    };
+    window.addEventListener('mouseup', onWindowMouseUp);
+    return () => window.removeEventListener('mouseup', onWindowMouseUp);
+  }, []);
+
+  // Mouse wheel zoom on viewport
+  const handleViewportWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.12 : 0.89;
+    setSettings((prev) => ({
+      ...prev,
+      zoom: Math.max(0.25, Math.min(8, Number((prev.zoom * factor).toFixed(2)))),
+    }));
+  }, []);
+
+  // High-resolution Image Download (with optional grid & coordinate ruler)
+  const handleDownloadImage = useCallback(
+    (format: ExportFormat = exportFormat, includeGrid = exportWithGrid) => {
+      if (!basePixelMatrix.length) return;
+
+      const scale = Math.max(1, settings.outputResolution);
+      const rulerMargin = includeGrid && scale >= 10 ? 28 : 0;
+      const canvas = document.createElement('canvas');
+      canvas.width = actualMatrixWidth * scale + rulerMargin;
+      canvas.height = actualMatrixHeight * scale + rulerMargin;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      // Fill background for JPEG or if preserveTransparency is false
+      if (format === 'jpeg' || !settings.preserveTransparency || rulerMargin > 0) {
+        ctx.fillStyle = rulerMargin > 0 ? '#0F172A' : settings.backgroundColor || '#FFFFFF';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+
+      // Draw pixels
+      for (let y = 0; y < actualMatrixHeight; y++) {
+        for (let x = 0; x < actualMatrixWidth; x++) {
+          const hex = basePixelMatrix[y][x];
+          if (!hex) {
+            if (format === 'jpeg' || !settings.preserveTransparency) {
+              ctx.fillStyle = settings.backgroundColor || '#FFFFFF';
+              ctx.fillRect(rulerMargin + x * scale, rulerMargin + y * scale, scale, scale);
+            }
+            continue;
+          }
+          ctx.fillStyle = hex;
+          ctx.fillRect(rulerMargin + x * scale, rulerMargin + y * scale, scale, scale);
+        }
+      }
+
+      // Optional Blueprint Grid & Ruler numbers
+      if (includeGrid && scale >= 4) {
+        ctx.strokeStyle = 'rgba(15, 23, 42, 0.25)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let x = 0; x <= actualMatrixWidth; x++) {
+          const px = rulerMargin + x * scale + 0.5;
+          ctx.moveTo(px, rulerMargin);
+          ctx.lineTo(px, canvas.height);
+        }
+        for (let y = 0; y <= actualMatrixHeight; y++) {
+          const py = rulerMargin + y * scale + 0.5;
+          ctx.moveTo(rulerMargin, py);
+          ctx.lineTo(canvas.width, py);
+        }
+        ctx.stroke();
+
+        // Major grid lines
+        if (settings.majorGridInterval > 1) {
+          ctx.strokeStyle = 'rgba(79, 70, 229, 0.75)';
+          ctx.lineWidth = Math.max(1.5, scale / 8);
+          ctx.beginPath();
+          for (let x = 0; x <= actualMatrixWidth; x += settings.majorGridInterval) {
+            const px = rulerMargin + x * scale + 0.5;
+            ctx.moveTo(px, 0);
+            ctx.lineTo(px, canvas.height);
+          }
+          for (let y = 0; y <= actualMatrixHeight; y += settings.majorGridInterval) {
+            const py = rulerMargin + y * scale + 0.5;
+            ctx.moveTo(0, py);
+            ctx.lineTo(canvas.width, py);
+          }
+          ctx.stroke();
+        }
+
+        if (rulerMargin > 0) {
+          ctx.fillStyle = '#E2E8F0';
+          ctx.font = '600 10px "JetBrains Mono", monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          const step = settings.majorGridInterval || 8;
+          for (let x = 0; x < actualMatrixWidth; x += step) {
+            ctx.fillText(
+              String(settings.originX + x),
+              rulerMargin + x * scale + (scale * step) / 2,
+              rulerMargin / 2
+            );
+          }
+          for (let y = 0; y < actualMatrixHeight; y += step) {
+            ctx.fillText(
+              String(settings.originY + y),
+              rulerMargin / 2,
+              rulerMargin + y * scale + (scale * step) / 2
+            );
+          }
+        }
+      }
 
       const link = document.createElement('a');
-      link.href = canvas.toDataURL(`image/${format}`);
-      link.download = `pixel-art.${format}`;
+      link.href = canvas.toDataURL(`image/${format}`, 0.95);
+      const slug = (sourceImageName || 'wplace-art').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      link.download = `${slug}-${actualMatrixWidth}x${actualMatrixHeight}.${format}`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-    };
-    img.onerror = () => {
-      setError('Failed to load pixelated image for download.');
-    };
-    img.src = pixelatedImage;
-  }, [pixelatedImage, settings.outputResolution]);
+      showToast(`Downloaded ${actualMatrixWidth}×${actualMatrixHeight} (${format.toUpperCase()})`);
+    },
+    [
+      basePixelMatrix,
+      exportFormat,
+      exportWithGrid,
+      settings.outputResolution,
+      settings.preserveTransparency,
+      settings.backgroundColor,
+      settings.majorGridInterval,
+      settings.originX,
+      settings.originY,
+      actualMatrixWidth,
+      actualMatrixHeight,
+      sourceImageName,
+      showToast,
+    ]
+  );
 
-  const clearHistory = useCallback(() => {
-    setHistory([]);
-    try {
-      localStorage.removeItem('pixelArtHistory');
-    } catch (e) {
-      console.error('Failed to clear history:', e);
+  // Export Wplace Coordinate Blueprint CSV
+  const handleExportBlueprintCsv = useCallback(() => {
+    if (!basePixelMatrix.length) return;
+    const rows: string[] = ['Local_X,Local_Y,Wplace_X,Wplace_Y,Color_ID,Color_Name,HEX'];
+    for (let y = 0; y < basePixelMatrix.length; y++) {
+      for (let x = 0; x < basePixelMatrix[y].length; x++) {
+        const hex = basePixelMatrix[y][x];
+        if (!hex) continue;
+        const color = WPLACE_COLORS.find((c) => c.hex.toUpperCase() === hex.toUpperCase());
+        rows.push(
+          `${x},${y},${settings.originX + x},${settings.originY + y},${color?.id || 0},"${
+            color?.name || 'Custom'
+          }",${hex}`
+        );
+      }
     }
-  }, []);
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${(sourceImageName || 'wplace').toLowerCase()}-coordinates.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    showToast('Exported Wplace coordinate CSV');
+  }, [basePixelMatrix, settings.originX, settings.originY, sourceImageName, showToast]);
 
-  const loadFromHistory = useCallback((item: ImageHistoryItem) => {
-    setSourceImage(item.sourceImage);
-    setPixelatedImage(item.pixelatedImage);
-    setSettings(item.settings);
-    setColorUsage([]);
-  }, []);
-
-  const handlePreviewMouseDown = useCallback((e: React.MouseEvent) => {
-    if (!previewContainerRef.current || !pixelatedImage) return;
-    setIsDragging(true);
-    const rect = previewContainerRef.current.getBoundingClientRect();
-    dragOffset.current = {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
+  const handleCopyBlueprintJson = useCallback(() => {
+    if (!basePixelMatrix.length) return;
+    const payload = {
+      name: sourceImageName,
+      dimensions: { width: actualMatrixWidth, height: actualMatrixHeight },
+      wplaceOrigin: { x: settings.originX, y: settings.originY },
+      totalPixels: colorUsage.reduce((acc, c) => acc + c.count, 0),
+      billOfMaterials: colorUsage.map((u) => ({
+        id: u.color.id,
+        name: u.color.name,
+        hex: u.color.hex,
+        count: u.count,
+        percentage: Number(u.percentage.toFixed(2)),
+      })),
     };
-  }, [pixelatedImage]);
+    navigator.clipboard?.writeText(JSON.stringify(payload, null, 2));
+    showToast('Copied Blueprint JSON to clipboard');
+  }, [
+    basePixelMatrix.length,
+    sourceImageName,
+    actualMatrixWidth,
+    actualMatrixHeight,
+    settings.originX,
+    settings.originY,
+    colorUsage,
+    showToast,
+  ]);
 
-  const handlePreviewMouseMove = useCallback((e: MouseEvent) => {
-    if (!isDragging || !previewContainerRef.current) return;
-    const containerRect = previewContainerRef.current.getBoundingClientRect();
-    const newX = ((e.clientX - dragOffset.current.x) / containerRect.width) * 100;
-    const newY = ((e.clientY - dragOffset.current.y) / containerRect.height) * 100;
-    setPreviewPosition({
-      x: Math.max(0, Math.min(100, newX)),
-      y: Math.max(0, Math.min(100, newY)),
-    });
-  }, [isDragging]);
-
-  const handlePreviewMouseUp = useCallback(() => {
-    setIsDragging(false);
-  }, []);
-
-  useEffect(() => {
-    if (isDragging) {
-      window.addEventListener('mousemove', handlePreviewMouseMove);
-      window.addEventListener('mouseup', handlePreviewMouseUp);
-      return () => {
-        window.removeEventListener('mousemove', handlePreviewMouseMove);
-        window.removeEventListener('mouseup', handlePreviewMouseUp);
-      };
-    }
-  }, [isDragging, handlePreviewMouseMove, handlePreviewMouseUp]);
-
-  const resetSettings = useCallback(() => {
-    setSettings({
-      width: 64,
-      height: 64,
-      previewX: 50,
-      previewY: 50,
-      opacity: 0.8,
-      showGrid: false,
-      previewSize: 500,
-      outputResolution: 10,
-      dithering: true,
-      lockAspectRatio: true,
-      brightness: 0,
-      contrast: 0,
-      saturation: 0,
-      zoom: 1,
-      darkMode: true,
+  // Toggle individual color in palette filter
+  const handleToggleColorEnabled = useCallback((hex: string) => {
+    setDisabledHexes((prev) => {
+      const next = new Set(prev);
+      if (next.has(hex)) {
+        next.delete(hex);
+      } else if (next.size < WPLACE_COLORS.length - 1) {
+        next.add(hex);
+      }
+      return next;
     });
   }, []);
+
+  const handleApplyPalettePreset = useCallback(
+    (presetId: string) => {
+      const preset = PALETTE_PRESETS.find((p) => p.id === presetId);
+      if (!preset) return;
+      const disabled = new Set<string>();
+      WPLACE_COLORS.forEach((c) => {
+        if (!preset.filter(c)) disabled.add(c.hex);
+      });
+      setDisabledHexes(disabled);
+      showToast(`Applied "${preset.name}" palette filter`);
+    },
+    [showToast]
+  );
+
+  const toggleCompletedColor = useCallback((hex: string) => {
+    setCompletedHexes((prev) => {
+      const next = new Set(prev);
+      if (next.has(hex)) next.delete(hex);
+      else next.add(hex);
+      return next;
+    });
+  }, []);
+
+  const loadFromHistory = useCallback(
+    (item: ImageHistoryItem) => {
+      setSourceImage(item.thumbnail);
+      setSourceImageName(item.name);
+      setSettings(item.settings);
+      setHighlightedHex(null);
+      setCompletedHexes(new Set());
+      if (item.pixelMatrix && item.pixelMatrix.length > 0) {
+        setBasePixelMatrix(item.pixelMatrix);
+      } else {
+        setPixelatedImage(item.pixelatedImage);
+      }
+      showToast(`Restored "${item.name}" from history`);
+    },
+    [showToast]
+  );
+
+  // Total completion metrics for Wplace Placement Checklist
+  const totalPixelCount = useMemo(
+    () => colorUsage.reduce((sum, item) => sum + item.count, 0),
+    [colorUsage]
+  );
+  const completedPixelCount = useMemo(
+    () =>
+      colorUsage.reduce(
+        (sum, item) => (completedHexes.has(item.color.hex) ? sum + item.count : sum),
+        0
+      ),
+    [colorUsage, completedHexes]
+  );
+  const completionPercent =
+    totalPixelCount > 0 ? Math.round((completedPixelCount / totalPixelCount) * 100) : 0;
+
+  const activeInspected = hoveredPixel || pinnedPixel;
+
+  const filteredColorUsage = useMemo(() => {
+    if (!colorSearch.trim()) return colorUsage;
+    const q = colorSearch.toLowerCase();
+    return colorUsage.filter(
+      (u) =>
+        u.color.name.toLowerCase().includes(q) ||
+        u.color.hex.toLowerCase().includes(q) ||
+        String(u.color.id) === q
+    );
+  }, [colorUsage, colorSearch]);
 
   return (
-    <div className={`min-h-screen flex flex-col ${darkMode ? 'dark' : ''}`}>
-      {/* Header */}
-      <header className="sticky top-0 z-50 backdrop-blur-md bg-white/80 dark:bg-gray-900/80 border-b border-gray-200 dark:border-gray-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-14">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center text-white">
-                <SparklesIcon />
-              </div>
-              <h1 className="text-lg font-semibold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">
-                Pixel Art Studio
-              </h1>
-            </div>
-            <button
-              onClick={() => setDarkMode(!darkMode)}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              aria-label="Toggle dark mode"
-            >
-              {darkMode ? <SunIcon /> : <MoonIcon />}
-            </button>
-          </div>
+    <div className="h-screen w-screen overflow-hidden flex flex-col bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100">
+      {/* Top Bar Contract: 3 Zones (Brand Wordmark — 4 Single-line Nav Links — 1 Primary Action) */}
+      <header className="h-14 shrink-0 flex items-center justify-between gap-8 px-6 bg-white dark:bg-[#0f1623] border-b border-slate-200 dark:border-slate-800/90 z-30">
+        {/* Zone 1: Single text element wordmark */}
+        <a
+          href="#studio"
+          onClick={(e) => {
+            e.preventDefault();
+            setActiveNavTab('studio');
+          }}
+          className="text-base font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap shrink-0"
+        >
+          Wplace Pixel Art Helper
+        </a>
+
+        {/* Zone 2: 4 concise single-line navigation links */}
+        <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-600 dark:text-slate-400">
+          <a
+            href="#studio"
+            onClick={(e) => {
+              e.preventDefault();
+              setActiveNavTab('studio');
+            }}
+            className={`py-1 transition-colors whitespace-nowrap shrink-0 border-b-2 ${
+              activeNavTab === 'studio'
+                ? 'border-indigo-500 text-slate-900 dark:text-white'
+                : 'border-transparent hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            Workspace
+          </a>
+          <a
+            href="#palette"
+            onClick={(e) => {
+              e.preventDefault();
+              setActiveNavTab('palette');
+            }}
+            className={`py-1 transition-colors whitespace-nowrap shrink-0 border-b-2 ${
+              activeNavTab === 'palette'
+                ? 'border-indigo-500 text-slate-900 dark:text-white'
+                : 'border-transparent hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            Palette Guide
+          </a>
+          <a
+            href="#blueprint"
+            onClick={(e) => {
+              e.preventDefault();
+              setActiveNavTab('blueprint');
+            }}
+            className={`py-1 transition-colors whitespace-nowrap shrink-0 border-b-2 ${
+              activeNavTab === 'blueprint'
+                ? 'border-indigo-500 text-slate-900 dark:text-white'
+                : 'border-transparent hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            Coordinate Matrix
+          </a>
+          <a
+            href="#history"
+            onClick={(e) => {
+              e.preventDefault();
+              setActiveNavTab('history');
+            }}
+            className={`py-1 transition-colors whitespace-nowrap shrink-0 border-b-2 ${
+              activeNavTab === 'history'
+                ? 'border-indigo-500 text-slate-900 dark:text-white'
+                : 'border-transparent hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            Saved History
+          </a>
+        </nav>
+
+        {/* Zone 3: 1 Primary Action */}
+        <div className="flex items-center gap-3 shrink-0">
+          <button
+            type="button"
+            onClick={() => setShowExportModal(true)}
+            className="px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg transition-colors whitespace-nowrap shrink-0 shadow-sm"
+          >
+            Export Blueprint
+          </button>
         </div>
       </header>
 
-      <main className="flex-1 flex overflow-hidden">
-        {/* Sidebar */}
-        <aside className="w-72 border-r border-gray-200 dark:border-gray-800 overflow-y-auto">
-          <div className="p-4 space-y-4">
-            {/* Upload Section */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-              <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Upload Image</h2>
+      {/* Main 3-Column Studio Layout */}
+      <main className="flex-1 flex overflow-hidden min-h-0">
+        {/* LEFT SIDEBAR: Image Input, Quantization, Dithering & Color Adjustments */}
+        <aside className="w-80 shrink-0 bg-white dark:bg-[#0f1623] border-r border-slate-200 dark:border-slate-800/90 flex flex-col overflow-y-auto">
+          <div className="p-4 space-y-6">
+            {/* Section 1: Source Image & Instant Sample Presets */}
+            <section className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                  01. Source Artwork
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setDarkMode(!darkMode)}
+                  className="text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 transition-colors whitespace-nowrap shrink-0"
+                >
+                  {darkMode ? 'Light Theme' : 'Dark Theme'}
+                </button>
+              </div>
+
               <input
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
-                onChange={handleInputChange}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleImageUpload(f);
+                }}
                 className="hidden"
               />
+
               <div
-                onDrop={handleFileDrop}
-                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                onClick={handleFileSelect}
-                className="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl p-6 text-center cursor-pointer hover:border-indigo-500 dark:hover:border-indigo-400 transition-colors"
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const f = e.dataTransfer.files?.[0];
+                  if (f) handleImageUpload(f);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onClick={() => fileInputRef.current?.click()}
+                className="group relative border border-dashed border-slate-300 dark:border-slate-700 hover:border-indigo-500 dark:hover:border-indigo-400 rounded-xl p-3.5 text-center cursor-pointer transition-colors bg-slate-50/70 dark:bg-slate-900/50"
               >
-                <div className="flex flex-col items-center gap-3">
-                  <div className="text-gray-400 dark:text-gray-500">
-                    <UploadIcon />
+                {sourceImage ? (
+                  <div className="flex items-center gap-3 text-left">
+                    <img
+                      src={sourceImage}
+                      alt={sourceImageName}
+                      className="w-12 h-12 rounded-lg object-cover border border-slate-200 dark:border-slate-700 shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
+                        {sourceImageName}
+                      </p>
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        Click or drop image to replace
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                ) : (
+                  <div className="py-2">
+                    <p className="text-xs font-medium text-slate-700 dark:text-slate-300">
                       Drop image or click to browse
                     </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      PNG, JPG, GIF, WebP
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      PNG, JPEG, WebP, GIF
                     </p>
                   </div>
-                </div>
+                )}
               </div>
-              {sourceImage && (
-                <div className="mt-4 relative group">
-                  <img src={sourceImage} alt="Source" className="w-full h-24 object-cover rounded-lg" />
-                  <button
-                    onClick={() => { setSourceImage(null); setPixelatedImage(null); setColorUsage([]); }}
-                    className="absolute top-2 right-2 p-1.5 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <TrashIcon />
-                  </button>
-                </div>
-              )}
-            </div>
 
-            {/* Settings Section */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300">Settings</h2>
-                <button onClick={resetSettings} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Reset">
-                  <RefreshIcon />
-                </button>
-              </div>
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Width</label>
-                    <input
-                      type="number"
-                      value={settings.width}
-                      onChange={(e) => handleSettingsChange('width', parseInt(e.target.value) || 1)}
-                      min={1}
-                      max={512}
-                      className="w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Height</label>
-                    <input
-                      type="number"
-                      value={settings.height}
-                      onChange={(e) => handleSettingsChange('height', parseInt(e.target.value) || 1)}
-                      min={1}
-                      max={512}
-                      className="w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    />
-                  </div>
-                </div>
-                
-                <div className="space-y-2">
-                  <label className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600 dark:text-gray-400">Lock Aspect Ratio</span>
-                    <input
-                      type="checkbox"
-                      checked={settings.lockAspectRatio}
-                      onChange={(e) => handleSettingsChange('lockAspectRatio', e.target.checked)}
-                      className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
-                    />
-                  </label>
-                  <label className="flex items-center justify-between">
-                    <span className="text-sm text-gray-600 dark:text-gray-400">Dithering</span>
-                    <input
-                      type="checkbox"
-                      checked={settings.dithering}
-                      onChange={(e) => handleSettingsChange('dithering', e.target.checked)}
-                      className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
-                    />
-                  </label>
-                </div>
-
-                <div>
-                  <div className="flex justify-between mb-2">
-                    <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Output Resolution</label>
-                    <span className="text-xs text-gray-600 dark:text-gray-400">{settings.outputResolution}px</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={1}
-                    max={50}
-                    value={settings.outputResolution}
-                    onChange={(e) => handleSettingsChange('outputResolution', parseInt(e.target.value))}
-                    className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Adjustments Section */}
-            <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-              <h2 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Adjustments</h2>
-              <div className="space-y-3">
-                {[
-                  { label: 'Brightness', key: 'brightness' as const },
-                  { label: 'Contrast', key: 'contrast' as const },
-                  { label: 'Saturation', key: 'saturation' as const },
-                ].map(({ label, key }) => (
-                  <div key={label}>
-                    <div className="flex justify-between mb-2">
-                      <label className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</label>
-                      <span className="text-xs text-gray-600 dark:text-gray-400">{settings[key]}</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={-100}
-                      max={100}
-                      value={settings[key]}
-                      onChange={(e) => handleSettingsChange(key, parseInt(e.target.value))}
-                      className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Generate Button */}
-            <button
-              onClick={runPixelation}
-              disabled={isLoading || !sourceImage}
-              className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-medium py-2.5 px-4 rounded-lg shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-2"
-            >
-              {isLoading ? (
-                <>
-                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  Processing...
-                </>
-              ) : (
-                <>
-                  <SparklesIcon />
-                  Generate Pixel Art
-                </>
-              )}
-            </button>
-
-            {/* Download Section */}
-            {pixelatedImage && (
-              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-                <div className="flex gap-2">
-                  <select
-                    value={exportFormat}
-                    onChange={(e) => setExportFormat(e.target.value as ExportFormat)}
-                    className="flex-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-indigo-500"
-                  >
-                    <option value="png">PNG</option>
-                    <option value="jpeg">JPEG</option>
-                    <option value="webp">WebP</option>
-                  </select>
-                  <button
-                    onClick={() => handleDownload(exportFormat)}
-                    className="bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200 font-medium py-2 px-4 rounded-lg border border-gray-200 dark:border-gray-600 shadow-sm hover:shadow-md transition-all flex items-center gap-2"
-                  >
-                    <DownloadIcon />
-                    Download
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Color Usage */}
-            {colorUsage.length > 0 && (
-              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Top Colors</h3>
-                <div className="space-y-2 max-h-32 overflow-y-auto">
-                  {colorUsage.slice(0, 5).map((usage, index) => (
-                    <div key={index} className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 rounded" style={{ backgroundColor: usage.color.hex }} />
-                        <span className="text-gray-600 dark:text-gray-400">{usage.color.name}</span>
-                      </div>
-                      <span className="text-gray-500 dark:text-gray-500">{usage.percentage.toFixed(1)}%</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* History Section */}
-            {history.length > 0 && (
-              <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">History ({history.length})</h3>
-                  <button onClick={clearHistory} className="text-xs text-red-500 hover:text-red-600 transition-colors">
-                    Clear
-                  </button>
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {history.slice(0, 8).map((item) => (
+              {/* Built-in Templates */}
+              <div className="space-y-1.5">
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Quick Sample Templates:
+                </span>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {SAMPLE_PRESETS.map((sample) => (
                     <button
-                      key={item.id}
-                      onClick={() => loadFromHistory(item)}
-                      className="aspect-square rounded-lg overflow-hidden hover:ring-2 hover:ring-indigo-500 transition-all"
+                      key={sample.id}
+                      type="button"
+                      onClick={() => handleLoadSamplePreset(sample.id)}
+                      className={`px-2 py-1.5 text-[11px] font-medium rounded-md border transition-colors truncate ${
+                        sourceImageName === sample.name
+                          ? 'bg-indigo-50 dark:bg-indigo-950/70 border-indigo-500/60 text-indigo-700 dark:text-indigo-300'
+                          : 'bg-slate-100/80 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                      }`}
                     >
-                      <img src={item.pixelatedImage} alt="History" className="w-full h-full object-cover" />
+                      {sample.name}
                     </button>
                   ))}
                 </div>
               </div>
-            )}
+            </section>
+
+            <hr className="border-slate-200 dark:border-slate-800" />
+
+            {/* Section 2: Canvas Dimensions & Wplace World Coordinates */}
+            <section className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                  02. Dimensions & Wplace Origin
+                </h2>
+                <span className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                  {(actualMatrixWidth * actualMatrixHeight).toLocaleString()} px
+                </span>
+              </div>
+
+              {/* Quick size presets */}
+              <div className="grid grid-cols-5 gap-1">
+                {[32, 48, 64, 96, 128].map((dim) => (
+                  <button
+                    key={dim}
+                    type="button"
+                    onClick={() => handleSettingsChange('width', dim)}
+                    className={`py-1 text-xs font-mono tabular-nums rounded border transition-colors ${
+                      settings.width === dim
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    {dim}px
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
+                    Grid Width (px)
+                  </label>
+                  <input
+                    type="number"
+                    min={4}
+                    max={320}
+                    value={settings.width}
+                    onChange={(e) =>
+                      handleSettingsChange(
+                        'width',
+                        Math.max(4, Math.min(320, parseInt(e.target.value, 10) || 4))
+                      )
+                    }
+                    className="w-full font-mono tabular-nums bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
+                    Grid Height (px)
+                  </label>
+                  <input
+                    type="number"
+                    min={4}
+                    max={320}
+                    value={settings.height}
+                    onChange={(e) =>
+                      handleSettingsChange(
+                        'height',
+                        Math.max(4, Math.min(320, parseInt(e.target.value, 10) || 4))
+                      )
+                    }
+                    className="w-full font-mono tabular-nums bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <label className="flex items-center justify-between cursor-pointer pt-0.5">
+                <span className="text-xs text-slate-700 dark:text-slate-300">
+                  Lock Source Aspect Ratio
+                </span>
+                <input
+                  type="checkbox"
+                  checked={settings.lockAspectRatio}
+                  onChange={(e) => handleSettingsChange('lockAspectRatio', e.target.checked)}
+                  className="w-4 h-4 accent-indigo-600 rounded cursor-pointer"
+                />
+              </label>
+
+              {/* Wplace Start X / Y */}
+              <div className="pt-1 grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
+                    Wplace Start X
+                  </label>
+                  <input
+                    type="number"
+                    value={settings.originX}
+                    onChange={(e) =>
+                      handleSettingsChange('originX', parseInt(e.target.value, 10) || 0)
+                    }
+                    className="w-full font-mono tabular-nums bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
+                    Wplace Start Y
+                  </label>
+                  <input
+                    type="number"
+                    value={settings.originY}
+                    onChange={(e) =>
+                      handleSettingsChange('originY', parseInt(e.target.value, 10) || 0)
+                    }
+                    className="w-full font-mono tabular-nums bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+            </section>
+
+            <hr className="border-slate-200 dark:border-slate-800" />
+
+            {/* Section 3: Quantization & Dithering Engine */}
+            <section className="space-y-3">
+              <h2 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                03. Dithering & Quantization
+              </h2>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
+                  Dithering Algorithm
+                </label>
+                <select
+                  value={settings.dithering ? settings.ditherAlgorithm : 'none'}
+                  onChange={(e) => {
+                    const val = e.target.value as DitherAlgorithm;
+                    if (val === 'none') {
+                      handleSettingsChange('dithering', false);
+                    } else {
+                      handleSettingsChange('dithering', true);
+                      handleSettingsChange('ditherAlgorithm', val);
+                    }
+                  }}
+                  className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="none">None (Nearest Solid Color)</option>
+                  <option value="floyd-steinberg">Floyd-Steinberg (Smooth Diffusion)</option>
+                  <option value="atkinson">Atkinson (Crisp Retro Contrast)</option>
+                  <option value="bayer-4x4">Bayer 4×4 (Ordered Crosshatch)</option>
+                  <option value="bayer-8x8">Bayer 8×8 (Fine Ordered Pattern)</option>
+                </select>
+              </div>
+
+              {settings.dithering && (
+                <div>
+                  <div className="flex justify-between text-[11px] mb-1">
+                    <span className="text-slate-500 dark:text-slate-400">Dither Strength</span>
+                    <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300">
+                      {settings.ditherStrength}%
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={5}
+                    max={100}
+                    value={settings.ditherStrength}
+                    onChange={(e) =>
+                      handleSettingsChange('ditherStrength', parseInt(e.target.value, 10))
+                    }
+                    className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-1">
+                  Color Matching Distance
+                </label>
+                <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800">
+                  {(
+                    [
+                      { id: 'perceptual', label: 'Perceptual' },
+                      { id: 'euclidean', label: 'Linear RGB' },
+                    ] as { id: ColorSpaceMode; label: string }[]
+                  ).map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => handleSettingsChange('colorSpace', m.id)}
+                      className={`py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                        settings.colorSpace === m.id
+                          ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                          : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <hr className="border-slate-200 dark:border-slate-800" />
+
+            {/* Section 4: Color Grading & Pre-Processing */}
+            <section className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                  04. Color & Edge Grading
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettings((prev) => ({
+                      ...prev,
+                      brightness: 0,
+                      contrast: 0,
+                      saturation: 0,
+                      sharpness: 15,
+                    }));
+                  }}
+                  className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline"
+                >
+                  Reset
+                </button>
+              </div>
+
+              {(
+                [
+                  { label: 'Brightness', key: 'brightness' as const, min: -100, max: 100 },
+                  { label: 'Contrast', key: 'contrast' as const, min: -100, max: 100 },
+                  { label: 'Saturation', key: 'saturation' as const, min: -100, max: 100 },
+                  { label: 'Edge Sharpness', key: 'sharpness' as const, min: 0, max: 100 },
+                ] as const
+              ).map(({ label, key, min, max }) => (
+                <div key={key}>
+                  <div className="flex justify-between text-[11px] mb-1">
+                    <span className="text-slate-500 dark:text-slate-400">{label}</span>
+                    <span className="font-mono tabular-nums text-slate-700 dark:text-slate-300">
+                      {settings[key] > 0 && min < 0 ? `+${settings[key]}` : settings[key]}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={min}
+                    max={max}
+                    value={settings[key]}
+                    onChange={(e) => handleSettingsChange(key, parseInt(e.target.value, 10))}
+                    className="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-600"
+                  />
+                </div>
+              ))}
+
+              <div className="pt-1 flex items-center justify-between gap-2">
+                <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={settings.preserveTransparency}
+                    onChange={(e) =>
+                      handleSettingsChange('preserveTransparency', e.target.checked)
+                    }
+                    className="w-4 h-4 accent-indigo-600 rounded"
+                  />
+                  Keep Transparent Pixels
+                </label>
+                {!settings.preserveTransparency && (
+                  <input
+                    type="color"
+                    value={settings.backgroundColor}
+                    onChange={(e) => handleSettingsChange('backgroundColor', e.target.value)}
+                    className="w-6 h-6 rounded border border-slate-300 dark:border-slate-700 cursor-pointer"
+                    title="Background fill color for transparent areas"
+                  />
+                )}
+              </div>
+            </section>
+
+            {/* Snapshot to History Button */}
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={() => runPixelation(true)}
+                disabled={isLoading || !sourceImage}
+                className="w-full py-2.5 px-4 bg-slate-900 dark:bg-indigo-600 hover:bg-slate-800 dark:hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm disabled:opacity-50"
+              >
+                {isLoading ? 'Processing Artwork...' : 'Save Snapshot to History'}
+              </button>
+            </div>
           </div>
         </aside>
 
-        {/* Main Canvas Area */}
-        <div 
-          ref={previewContainerRef}
-          className="flex-1 bg-grid-pattern relative overflow-hidden"
-          onMouseDown={handlePreviewMouseDown}
-        >
+        {/* CENTER VIEWPORT: Interactive Canvas, Tool Dock, Comparison Views & Coordinate HUD */}
+        <section className="flex-1 flex flex-col relative overflow-hidden bg-canvas-grid">
+          {/* Top Workspace Toolbar */}
+          <div className="h-12 shrink-0 px-4 bg-white/90 dark:bg-[#0f1623]/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4 z-20">
+            {/* Left: Interactive Pixel Tools */}
+            <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800">
+              {(
+                [
+                  { id: 'inspect', label: 'Inspect' },
+                  { id: 'pan', label: 'Pan' },
+                  { id: 'pencil', label: 'Pencil' },
+                  { id: 'bucket', label: 'Fill' },
+                  { id: 'eyedropper', label: 'Picker' },
+                  { id: 'eraser', label: 'Erase' },
+                ] as { id: CanvasTool; label: string }[]
+              ).map((tool) => (
+                <button
+                  key={tool.id}
+                  type="button"
+                  onClick={() => setActiveTool(tool.id)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                    activeTool === tool.id
+                      ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  {tool.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Center: Undo / Redo + Comparison Mode Switcher */}
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={handleUndo}
+                  disabled={undoStack.length === 0}
+                  className="px-2.5 py-1 text-xs font-medium rounded-md bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
+                  title="Undo pixel edit (Ctrl+Z)"
+                >
+                  Undo ({undoStack.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRedo}
+                  disabled={redoStack.length === 0}
+                  className="px-2.5 py-1 text-xs font-medium rounded-md bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
+                  title="Redo pixel edit (Ctrl+Y)"
+                >
+                  Redo
+                </button>
+              </div>
+
+              <div className="h-4 w-px bg-slate-200 dark:bg-slate-800" />
+
+              <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800">
+                {(
+                  [
+                    { id: 'pixel', label: 'Pixel Art' },
+                    { id: 'split', label: 'Split Compare' },
+                    { id: 'overlay', label: 'Ghost Overlay' },
+                    { id: 'side-by-side', label: 'Side by Side' },
+                  ] as { id: ViewComparisonMode; label: string }[]
+                ).map((mode) => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    onClick={() => setComparisonMode(mode.id)}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                      comparisonMode === mode.id
+                        ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Right: Active Highlight Indicator */}
+            <div className="flex items-center gap-2">
+              {highlightedHex && (
+                <button
+                  type="button"
+                  onClick={() => setHighlightedHex(null)}
+                  className="px-2.5 py-1 text-xs font-medium rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/25 transition-colors whitespace-nowrap shrink-0"
+                >
+                  Clear Color Isolation ({highlightedHex})
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Toast & Error Notifications */}
           {error && (
-            <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50">
-              <div className="bg-red-500 text-white px-4 py-2 rounded-lg shadow-lg text-sm">
-                {error}
-              </div>
+            <div className="absolute top-16 left-1/2 -translate-x-1/2 z-40 bg-red-600 text-white px-4 py-2 rounded-lg shadow-lg text-xs font-medium flex items-center gap-3">
+              <span>{error}</span>
+              <button
+                type="button"
+                onClick={() => setError(null)}
+                className="underline text-white/90 hover:text-white"
+              >
+                Dismiss
+              </button>
             </div>
           )}
 
-          {!sourceImage && !pixelatedImage && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center">
-                <div className="w-24 h-24 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-400 dark:text-gray-500">
-                  <UploadIcon />
+          {toastMessage && (
+            <div className="absolute top-16 left-1/2 -translate-x-1/2 z-40 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 px-4 py-2 rounded-lg shadow-lg text-xs font-medium pointer-events-none">
+              {toastMessage}
+            </div>
+          )}
+
+          {/* Main Interactive Canvas Surface */}
+          {activeNavTab === 'blueprint' ? (
+            /* Coordinate Matrix Table View */
+            <div className="flex-1 overflow-auto p-6 bg-slate-50 dark:bg-[#090d16]">
+              <div className="max-w-5xl mx-auto space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                      Wplace Coordinate Blueprint Matrix
+                    </h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      Exact world coordinates starting from ({settings.originX}, {settings.originY}) ·
+                      Click any color row below or export full coordinate CSV for automated scripts.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleCopyBlueprintJson}
+                      className="px-3 py-1.5 text-xs font-medium rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                    >
+                      Copy JSON Summary
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExportBlueprintCsv}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
+                    >
+                      Download Full CSV ({totalPixelCount.toLocaleString()} rows)
+                    </button>
+                  </div>
                 </div>
-                <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                  Get Started
-                </h2>
-                <p className="text-gray-500 dark:text-gray-400 max-w-md">
-                  Upload an image to convert it into beautiful pixel art using the Wplace color palette
-                </p>
+
+                {/* Bill of Materials Table */}
+                <div className="bg-white dark:bg-[#0f1623] border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-200 dark:border-slate-800 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                        <th className="py-2.5 px-4">Status</th>
+                        <th className="py-2.5 px-4">Wplace ID</th>
+                        <th className="py-2.5 px-4">Color Name</th>
+                        <th className="py-2.5 px-4">HEX Code</th>
+                        <th className="py-2.5 px-4 text-right">Pixel Count</th>
+                        <th className="py-2.5 px-4 text-right">Share</th>
+                        <th className="py-2.5 px-4 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800/70 text-xs">
+                      {colorUsage.map((u) => {
+                        const isDone = completedHexes.has(u.color.hex);
+                        const isIsolated = highlightedHex === u.color.hex;
+                        return (
+                          <tr
+                            key={u.color.hex}
+                            className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${
+                              isDone ? 'opacity-50' : ''
+                            }`}
+                          >
+                            <td className="py-2.5 px-4">
+                              <input
+                                type="checkbox"
+                                checked={isDone}
+                                onChange={() => toggleCompletedColor(u.color.hex)}
+                                className="w-4 h-4 accent-emerald-600 rounded cursor-pointer"
+                              />
+                            </td>
+                            <td className="py-2.5 px-4 font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                              #{u.color.id}
+                            </td>
+                            <td className="py-2.5 px-4">
+                              <div className="flex items-center gap-2.5">
+                                <span
+                                  className="w-4 h-4 rounded border border-black/15 dark:border-white/15 shrink-0"
+                                  style={{ backgroundColor: u.color.hex }}
+                                />
+                                <span className="font-medium text-slate-900 dark:text-slate-100">
+                                  {u.color.name}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-4 font-mono tabular-nums text-slate-600 dark:text-slate-400">
+                              {u.color.hex}
+                            </td>
+                            <td className="py-2.5 px-4 text-right font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100">
+                              {u.count.toLocaleString()}
+                            </td>
+                            <td className="py-2.5 px-4 text-right font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                              {u.percentage.toFixed(1)}%
+                            </td>
+                            <td className="py-2.5 px-4 text-right">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setHighlightedHex(isIsolated ? null : u.color.hex);
+                                  setActiveNavTab('studio');
+                                }}
+                                className="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                              >
+                                {isIsolated ? 'Showing on Canvas' : 'Locate on Canvas'}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
-          )}
-
-          {pixelatedImage && (
+          ) : (
             <div
-              className="absolute transition-opacity duration-200"
-              style={{
-                left: `${previewPosition.x}%`,
-                top: `${previewPosition.y}%`,
-                transform: 'translate(-50%, -50%)',
-                opacity: settings.opacity,
-                cursor: isDragging ? 'grabbing' : 'grab',
-              }}
+              ref={viewportRef}
+              onMouseDown={handleViewportMouseDown}
+              onMouseMove={handleViewportMouseMove}
+              onMouseLeave={() => setHoveredPixel(null)}
+              onWheel={handleViewportWheel}
+              className={`flex-1 relative overflow-hidden flex items-center justify-center ${
+                isPanning || activeTool === 'pan'
+                  ? isPanning
+                    ? 'cursor-grabbing'
+                    : 'cursor-grab'
+                  : activeTool === 'Inspect' || activeTool === 'inspect'
+                  ? 'cursor-crosshair'
+                  : 'cursor-cell'
+              }`}
             >
-              <div className="relative">
-                <img
-                  src={pixelatedImage}
-                  alt="Pixelated"
-                  className="rounded-lg shadow-2xl"
-                  style={{ 
-                    width: `${settings.previewSize}px`,
-                    imageRendering: 'pixelated' 
+              {pixelatedImage && (
+                <div
+                  style={{
+                    transform: `translate3d(${panOffset.x}px, ${panOffset.y}px, 0)`,
                   }}
-                  draggable={false}
-                />
-                {settings.showGrid && (
-                  <div 
-                    className="absolute inset-0 pointer-events-none"
+                  className="flex items-center gap-6"
+                >
+                  {/* Side-by-Side Original Reference */}
+                  {comparisonMode === 'side-by-side' && sourceImage && (
+                    <div className="relative rounded-lg overflow-hidden shadow-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900">
+                      <img
+                        src={sourceImage}
+                        alt="Original Source"
+                        style={{
+                          width: `${displayWidth}px`,
+                          height: `${displayHeight}px`,
+                        }}
+                        className="block object-fill pointer-events-none"
+                        draggable={false}
+                      />
+                      <div className="absolute bottom-2 left-2 bg-slate-900/80 text-white text-[11px] font-medium px-2 py-0.5 rounded">
+                        Original Reference
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Primary Interactive Pixel Art Canvas Container */}
+                  <div
+                    ref={artWrapperRef}
                     style={{
-                      backgroundImage: `
-                        linear-gradient(to right, rgba(255,255,255,0.3) 1px, transparent 1px),
-                        linear-gradient(to bottom, rgba(255,255,255,0.3) 1px, transparent 1px)
-                      `,
-                      backgroundSize: `${settings.previewSize / settings.width}px ${settings.previewSize / settings.height * (settings.height / settings.width)}px`
+                      width: `${displayWidth}px`,
+                      height: `${displayHeight}px`,
                     }}
+                    className="relative rounded-lg shadow-2xl border border-slate-300 dark:border-slate-700 bg-[linear-gradient(45deg,#e2e8f0_25%,transparent_25%),linear-gradient(-45deg,#e2e8f0_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#e2e8f0_75%),linear-gradient(-45deg,transparent_75%,#e2e8f0_75%)] dark:bg-[linear-gradient(45deg,#1e293b_25%,transparent_25%),linear-gradient(-45deg,#1e293b_25%,transparent_25%),linear-gradient(45deg,transparent_75%,#1e293b_75%),linear-gradient(-45deg,transparent_75%,#1e293b_75%)] bg-[length:16px_16px] bg-[position:0_0,0_8px,8px_-8px,-8px_0]"
+                  >
+                    {/* Ghost Overlay Original Image underneath */}
+                    {comparisonMode === 'overlay' && sourceImage && (
+                      <img
+                        src={sourceImage}
+                        alt="Source Ghost"
+                        className="absolute inset-0 w-full h-full object-fill pointer-events-none rounded-lg"
+                        draggable={false}
+                      />
+                    )}
+
+                    {/* Pixelated Output Image */}
+                    <img
+                      src={pixelatedImage}
+                      alt="Pixelated Output"
+                      style={{
+                        imageRendering: 'pixelated',
+                        opacity: comparisonMode === 'overlay' ? settings.opacity : 1,
+                      }}
+                      className="w-full h-full block rounded-lg pointer-events-none"
+                      draggable={false}
+                    />
+
+                    {/* Split Comparison Curtain */}
+                    {comparisonMode === 'split' && sourceImage && (
+                      <>
+                        <div
+                          style={{ width: `${splitPosition}%` }}
+                          className="absolute inset-y-0 left-0 overflow-hidden pointer-events-none rounded-l-lg"
+                        >
+                          <img
+                            src={sourceImage}
+                            alt="Before Split"
+                            style={{
+                              width: `${displayWidth}px`,
+                              height: `${displayHeight}px`,
+                              maxWidth: 'none',
+                            }}
+                            className="block object-fill"
+                            draggable={false}
+                          />
+                        </div>
+                        <div
+                          style={{ left: `${splitPosition}%` }}
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            const moveSplit = (ev: MouseEvent) => {
+                              if (!artWrapperRef.current) return;
+                              const r = artWrapperRef.current.getBoundingClientRect();
+                              const pct = Math.max(
+                                0,
+                                Math.min(100, ((ev.clientX - r.left) / r.width) * 100)
+                              );
+                              setSplitPosition(pct);
+                            };
+                            const upSplit = () => {
+                              window.removeEventListener('mousemove', moveSplit);
+                              window.removeEventListener('mouseup', upSplit);
+                            };
+                            window.addEventListener('mousemove', moveSplit);
+                            window.addEventListener('mouseup', upSplit);
+                          }}
+                          className="absolute inset-y-0 -ml-0.5 w-1 bg-white shadow-md cursor-ew-resize z-20 flex items-center justify-center"
+                        >
+                          <div className="w-5 h-8 rounded bg-white text-slate-900 shadow-md flex items-center justify-center text-[10px] font-bold">
+                            ⋮
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Crisp HTML5 Grid & Coordinate Highlight Canvas */}
+                    <canvas
+                      ref={gridCanvasRef}
+                      className="absolute inset-0 w-full h-full pointer-events-none rounded-lg"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Top-Left Live Coordinate & Color Inspector HUD */}
+              <div
+                onMouseDown={(e) => e.stopPropagation()}
+                className="absolute top-3 left-3 bg-white/95 dark:bg-[#0f1623]/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 shadow-lg text-xs space-y-1.5 min-w-[230px]"
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                    Grid Size
+                  </span>
+                  <span className="font-mono tabular-nums font-semibold text-slate-900 dark:text-slate-100">
+                    {actualMatrixWidth} × {actualMatrixHeight} px
+                  </span>
+                </div>
+
+                {activeInspected ? (
+                  <>
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                        Local (X, Y)
+                      </span>
+                      <span className="font-mono tabular-nums text-slate-900 dark:text-slate-100">
+                        ({activeInspected.x}, {activeInspected.y})
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                        Wplace Coord
+                      </span>
+                      <span className="font-mono tabular-nums font-semibold text-indigo-600 dark:text-indigo-400">
+                        X:{activeInspected.worldX} · Y:{activeInspected.worldY}
+                      </span>
+                    </div>
+                    <div className="pt-1 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2">
+                      {activeInspected.color ? (
+                        <>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className="w-3.5 h-3.5 rounded border border-black/20 dark:border-white/20 shrink-0"
+                              style={{ backgroundColor: activeInspected.color.hex }}
+                            />
+                            <span className="font-medium text-slate-800 dark:text-slate-200 truncate">
+                              #{activeInspected.color.id} {activeInspected.color.name}
+                            </span>
+                          </div>
+                          <span className="font-mono tabular-nums text-[11px] text-slate-500">
+                            {activeInspected.color.hex}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-slate-400">Transparent Pixel</span>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 pt-0.5">
+                    Hover or click any pixel to inspect Wplace coordinates
+                  </p>
+                )}
+              </div>
+
+              {/* Bottom Floating Viewport Controls (StopPropagation fixes dragging bug!) */}
+              <div
+                onMouseDown={(e) => e.stopPropagation()}
+                className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/95 dark:bg-[#0f1623]/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2 shadow-xl flex items-center gap-4 text-xs z-20"
+              >
+                {/* Zoom Controls */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleSettingsChange(
+                        'zoom',
+                        Math.max(0.25, Number((settings.zoom - 0.25).toFixed(2)))
+                      )
+                    }
+                    className="w-6 h-6 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 font-mono font-bold text-slate-700 dark:text-slate-200"
+                  >
+                    -
+                  </button>
+                  <span className="font-mono tabular-nums w-12 text-center font-medium text-slate-800 dark:text-slate-200">
+                    {Math.round(settings.zoom * 100)}%
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleSettingsChange(
+                        'zoom',
+                        Math.min(8, Number((settings.zoom + 0.25).toFixed(2)))
+                      )
+                    }
+                    className="w-6 h-6 rounded bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 font-mono font-bold text-slate-700 dark:text-slate-200"
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleSettingsChange('zoom', 1);
+                      setPanOffset({ x: 0, y: 0 });
+                    }}
+                    className="px-2 py-1 text-[11px] text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors whitespace-nowrap shrink-0"
+                  >
+                    Center 1:1
+                  </button>
+                </div>
+
+                <div className="h-4 w-px bg-slate-200 dark:bg-slate-800" />
+
+                {/* Pixel Grid Toggle */}
+                <label className="flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={settings.showGrid}
+                    onChange={(e) => handleSettingsChange('showGrid', e.target.checked)}
+                    className="w-3.5 h-3.5 accent-indigo-600 rounded"
                   />
+                  <span className="text-slate-700 dark:text-slate-300">Pixel Grid</span>
+                </label>
+
+                {/* Major Chunk Grid Toggle */}
+                <label className="flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={settings.showMajorGrid}
+                    onChange={(e) => handleSettingsChange('showMajorGrid', e.target.checked)}
+                    className="w-3.5 h-3.5 accent-indigo-600 rounded"
+                  />
+                  <span className="text-slate-700 dark:text-slate-300">
+                    {settings.majorGridInterval}×{settings.majorGridInterval} Guide
+                  </span>
+                </label>
+
+                {comparisonMode === 'overlay' && (
+                  <>
+                    <div className="h-4 w-px bg-slate-200 dark:bg-slate-800" />
+                    <div className="flex items-center gap-2">
+                      <span className="text-slate-500 dark:text-slate-400">Overlay Opacity</span>
+                      <input
+                        type="range"
+                        min={0.1}
+                        max={1}
+                        step={0.05}
+                        value={settings.opacity}
+                        onChange={(e) =>
+                          handleSettingsChange('opacity', parseFloat(e.target.value))
+                        }
+                        className="w-20 h-1.5 accent-indigo-600 cursor-pointer"
+                      />
+                    </div>
+                  </>
                 )}
               </div>
             </div>
           )}
+        </section>
 
-          {/* Preview Controls */}
-          {pixelatedImage && (
-            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 backdrop-blur-md bg-white/90 dark:bg-gray-800/90 rounded-full px-4 py-2 flex items-center gap-4 shadow-lg">
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-600 dark:text-gray-400">Size</label>
-                <input
-                  type="range"
-                  min={200}
-                  max={800}
-                  value={settings.previewSize}
-                  onChange={(e) => handleSettingsChange('previewSize', parseInt(e.target.value))}
-                  className="w-24 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
-                />
-              </div>
-              <div className="w-px h-6 bg-gray-300 dark:bg-gray-600" />
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={settings.showGrid}
-                  onChange={(e) => handleSettingsChange('showGrid', e.target.checked)}
-                  className="w-4 h-4 text-indigo-600 rounded"
-                />
-                <span className="text-xs text-gray-600 dark:text-gray-400 flex items-center gap-1">
-                  <GridIcon /> Grid
+        {/* RIGHT SIDEBAR: Wplace 64-Color Palette, Placement Progress Checklist & History */}
+        <aside className="w-80 shrink-0 bg-white dark:bg-[#0f1623] border-l border-slate-200 dark:border-slate-800/90 flex flex-col overflow-y-auto">
+          <div className="p-4 space-y-6">
+            {/* Official 64-Color Wplace Palette */}
+            <section className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                  Wplace 64-Color Palette
+                </h2>
+                <span className="text-[11px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                  {colorUsage.length} used
                 </span>
-              </label>
-              <div className="w-px h-6 bg-gray-300 dark:bg-gray-600" />
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-600 dark:text-gray-400">Opacity</label>
-                <input
-                  type="range"
-                  min={0.1}
-                  max={1}
-                  step={0.1}
-                  value={settings.opacity}
-                  onChange={(e) => handleSettingsChange('opacity', parseFloat(e.target.value))}
-                  className="w-20 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer"
+              </div>
+
+              <WplacePalette
+                colors={WPLACE_COLORS}
+                activeBrushColor={activeBrushColor}
+                onSelectBrushColor={(color) => {
+                  setActiveBrushColor(color);
+                  if (activeTool === 'pan' || activeTool === 'inspect') {
+                    setActiveTool('pencil');
+                  }
+                }}
+                disabledHexes={disabledHexes}
+                onToggleColorEnabled={handleToggleColorEnabled}
+                onApplyPreset={handleApplyPalettePreset}
+                highlightedHex={highlightedHex}
+                onSelectHighlightHex={setHighlightedHex}
+                mode={paletteMode}
+                setMode={setPaletteMode}
+              />
+            </section>
+
+            <hr className="border-slate-200 dark:border-slate-800" />
+
+            {/* Wplace Placement Guide & Color Checklist */}
+            <section className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                  Placement Checklist
+                </h2>
+                <span className="text-[11px] font-mono tabular-nums text-emerald-600 dark:text-emerald-400 font-semibold">
+                  {completedPixelCount.toLocaleString()} / {totalPixelCount.toLocaleString()} (
+                  {completionPercent}%)
+                </span>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                <div
+                  style={{ width: `${completionPercent}%` }}
+                  className="h-full bg-emerald-500 transition-all duration-150"
                 />
               </div>
-            </div>
-          )}
-        </div>
+
+              {/* Filter Input */}
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={colorSearch}
+                  onChange={(e) => setColorSearch(e.target.value)}
+                  placeholder="Search color name, ID or HEX..."
+                  className="flex-1 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                {completedHexes.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setCompletedHexes(new Set())}
+                    className="text-[11px] text-slate-500 hover:text-slate-900 dark:hover:text-white whitespace-nowrap shrink-0"
+                  >
+                    Reset Done
+                  </button>
+                )}
+              </div>
+
+              {/* Color Usage List with Isolate & Checkoff */}
+              <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                {filteredColorUsage.map((u) => {
+                  const isIsolated = highlightedHex === u.color.hex;
+                  const isDone = completedHexes.has(u.color.hex);
+                  return (
+                    <div
+                      key={u.color.hex}
+                      className={`flex items-center justify-between gap-2 p-2 rounded-lg border transition-colors ${
+                        isIsolated
+                          ? 'bg-amber-500/10 border-amber-500/40'
+                          : 'bg-slate-50/80 dark:bg-slate-900/60 border-slate-200/80 dark:border-slate-800/80'
+                      } ${isDone ? 'opacity-50' : ''}`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={isDone}
+                          onChange={() => toggleCompletedColor(u.color.hex)}
+                          className="w-3.5 h-3.5 accent-emerald-600 rounded cursor-pointer shrink-0"
+                          title="Mark color as placed on Wplace"
+                        />
+                        <span
+                          className="w-4 h-4 rounded border border-black/15 dark:border-white/15 shrink-0"
+                          style={{ backgroundColor: u.color.hex }}
+                        />
+                        <div className="min-w-0">
+                          <p className="text-xs font-medium text-slate-900 dark:text-slate-100 truncate">
+                            #{u.color.id} {u.color.name}
+                          </p>
+                          <p className="text-[10px] font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                            {u.count.toLocaleString()} px · {u.percentage.toFixed(1)}%
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setHighlightedHex(isIsolated ? null : u.color.hex)}
+                        className={`px-2 py-1 text-[11px] font-medium rounded transition-colors whitespace-nowrap shrink-0 ${
+                          isIsolated
+                            ? 'bg-amber-500 text-slate-950 font-semibold'
+                            : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:border-indigo-500'
+                        }`}
+                      >
+                        {isIsolated ? 'Isolated' : 'Isolate'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            <hr className="border-slate-200 dark:border-slate-800" />
+
+            {/* Saved History Section */}
+            <section className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                  Saved Snapshots ({history.length})
+                </h2>
+                {history.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHistory([]);
+                      localStorage.removeItem('wplacePixelHistory_v2');
+                    }}
+                    className="text-[11px] text-red-500 hover:underline"
+                  >
+                    Clear All
+                  </button>
+                )}
+              </div>
+
+              {history.length === 0 ? (
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Click "Save Snapshot to History" after customizing an artwork to compare versions.
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {history.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => loadFromHistory(item)}
+                      className="group text-left p-2 rounded-lg bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800 hover:border-indigo-500 transition-colors"
+                    >
+                      <img
+                        src={item.pixelatedImage}
+                        alt={item.name}
+                        style={{ imageRendering: 'pixelated' }}
+                        className="w-full aspect-square object-contain rounded bg-slate-200/50 dark:bg-slate-950 mb-1.5"
+                      />
+                      <p className="text-xs font-medium text-slate-800 dark:text-slate-200 truncate">
+                        {item.name}
+                      </p>
+                      <p className="text-[10px] font-mono tabular-nums text-slate-500">
+                        {item.settings.width}×{item.settings.height} px
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        </aside>
       </main>
 
-      <style>{`
-        .bg-grid-pattern {
-          background-image: 
-            linear-gradient(to right, rgba(0,0,0,0.05) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(0,0,0,0.05) 1px, transparent 1px);
-          background-size: 20px 20px;
-        }
-        .dark .bg-grid-pattern {
-          background-image: 
-            linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
-            linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
-        }
-        input[type="range"]::-webkit-slider-thumb {
-          @apply w-4 h-4 bg-indigo-500 rounded-full appearance-none cursor-pointer shadow-md hover:scale-110 transition-transform duration-200;
-        }
-      `}</style>
+      {/* Export Blueprint Modal */}
+      {showExportModal && (
+        <div
+          onClick={() => setShowExportModal(false)}
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md bg-white dark:bg-[#0f1623] border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-6 space-y-5"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                Export Artwork & Wplace Blueprint
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowExportModal(false)}
+                className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
+                  Image Format
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['png', 'webp', 'jpeg'] as ExportFormat[]).map((fmt) => (
+                    <button
+                      key={fmt}
+                      type="button"
+                      onClick={() => setExportFormat(fmt)}
+                      className={`py-2 text-xs font-semibold uppercase rounded-lg border transition-colors ${
+                        exportFormat === fmt
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      {fmt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-slate-600 dark:text-slate-400">
+                    Upscale Multiplier ({settings.outputResolution}× per pixel)
+                  </span>
+                  <span className="font-mono tabular-nums text-slate-900 dark:text-slate-100 font-semibold">
+                    {actualMatrixWidth * settings.outputResolution} ×{' '}
+                    {actualMatrixHeight * settings.outputResolution} px
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={1}
+                  max={32}
+                  value={settings.outputResolution}
+                  onChange={(e) =>
+                    handleSettingsChange('outputResolution', parseInt(e.target.value, 10))
+                  }
+                  className="w-full h-1.5 accent-indigo-600 cursor-pointer"
+                />
+              </div>
+
+              <label className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 cursor-pointer">
+                <div>
+                  <p className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                    Bake Wplace Grid & Coordinate Ruler
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Draws grid lines and world coordinates ({settings.originX}, {settings.originY})
+                    onto the image
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={exportWithGrid}
+                  onChange={(e) => setExportWithGrid(e.target.checked)}
+                  className="w-4 h-4 accent-indigo-600 rounded"
+                />
+              </label>
+
+              <div className="pt-2 space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleDownloadImage(exportFormat, exportWithGrid);
+                    setShowExportModal(false);
+                  }}
+                  className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
+                >
+                  Download High-Res {exportFormat.toUpperCase()} Image
+                </button>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleExportBlueprintCsv();
+                      setShowExportModal(false);
+                    }}
+                    className="py-2 px-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-medium rounded-lg transition-colors"
+                  >
+                    Export Coordinate CSV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleCopyBlueprintJson();
+                      setShowExportModal(false);
+                    }}
+                    className="py-2 px-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-medium rounded-lg transition-colors"
+                  >
+                    Copy Blueprint JSON
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

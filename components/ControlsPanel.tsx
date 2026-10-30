@@ -235,7 +235,18 @@ export const ControlsPanel: React.FC<ControlsPanelProps> = ({
 
       <div className="space-y-4">
         <h3 className={`text-lg font-semibold ${darkMode ? 'text-gray-300' : 'text-gray-700'}`}>Wplace 64 Color Palette</h3>
-        <WplacePalette colors={wplaceColors} />
+        <WplacePalette
+          colors={wplaceColors}
+          activeBrushColor={wplaceColors[0]}
+          onSelectBrushColor={() => {}}
+          disabledHexes={new Set()}
+          onToggleColorEnabled={() => {}}
+          onApplyPreset={() => {}}
+          highlightedHex={null}
+          onSelectHighlightHex={() => {}}
+          mode="brush"
+          setMode={() => {}}
+        />
       </div>
 
       <div className="space-y-4">
