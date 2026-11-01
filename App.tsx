@@ -1648,7 +1648,7 @@ const App: React.FC = () => {
                   ? isPanning
                     ? 'cursor-grabbing'
                     : 'cursor-grab'
-                  : activeTool === 'Inspect' || activeTool === 'inspect'
+                  : activeTool === 'inspect'
                   ? 'cursor-crosshair'
                   : 'cursor-cell'
               }`}
