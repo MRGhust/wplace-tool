@@ -4,6 +4,11 @@ import {
   renderMatrixToDataUrl,
   calculateMatrixColorUsage,
   createThumbnailDataUrl,
+  flipMatrixHorizontal,
+  flipMatrixVertical,
+  rotateMatrix90CW,
+  replaceMatrixColor,
+  hexToRgb,
 } from './services/pixelator';
 import type {
   PixelatorSettings,
@@ -12,6 +17,7 @@ import type {
   ExportFormat,
   WplaceColor,
   CanvasTool,
+  SymmetryMode,
   ViewComparisonMode,
   InspectedPixel,
   DitherAlgorithm,
@@ -28,6 +34,7 @@ const DEFAULT_SETTINGS: PixelatorSettings = {
   opacity: 1,
   showGrid: true,
   showMajorGrid: true,
+  showColorIds: false,
   majorGridInterval: 8,
   previewSize: 512,
   outputResolution: 12,
@@ -47,6 +54,56 @@ const DEFAULT_SETTINGS: PixelatorSettings = {
   autoUpdate: true,
   zoom: 1,
   darkMode: true,
+};
+
+// Bresenham's line algorithm for pixel-perfect lines
+const getLinePixels = (x0: number, y0: number, x1: number, y1: number): [number, number][] => {
+  const pts: [number, number][] = [];
+  let cx = x0;
+  let cy = y0;
+  const dx = Math.abs(x1 - x0);
+  const dy = Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1;
+  const sy = y0 < y1 ? 1 : -1;
+  let err = dx - dy;
+
+  while (true) {
+    pts.push([cx, cy]);
+    if (cx === x1 && cy === y1) break;
+    const e2 = 2 * err;
+    if (e2 > -dy) {
+      err -= dy;
+      cx += sx;
+    }
+    if (e2 < dx) {
+      err += dx;
+      cy += sy;
+    }
+  }
+  return pts;
+};
+
+// Rectangle outline pixel coordinates
+const getRectPixels = (x0: number, y0: number, x1: number, y1: number): [number, number][] => {
+  const minX = Math.min(x0, x1);
+  const maxX = Math.max(x0, x1);
+  const minY = Math.min(y0, y1);
+  const maxY = Math.max(y0, y1);
+  const pts: [number, number][] = [];
+  for (let x = minX; x <= maxX; x++) {
+    pts.push([x, minY]);
+    if (maxY !== minY) pts.push([x, maxY]);
+  }
+  for (let y = minY + 1; y < maxY; y++) {
+    pts.push([minX, y]);
+    if (maxX !== minX) pts.push([maxX, y]);
+  }
+  return pts;
+};
+
+const isColorDark = (hex: string): boolean => {
+  const [r, g, b] = hexToRgb(hex);
+  return 0.299 * r + 0.587 * g + 0.114 * b < 140;
 };
 
 const App: React.FC = () => {
@@ -71,22 +128,29 @@ const App: React.FC = () => {
   const [completedHexes, setCompletedHexes] = useState<Set<string>>(new Set());
   const [paletteMode, setPaletteMode] = useState<'brush' | 'filter'>('brush');
   const [colorSearch, setColorSearch] = useState('');
+  const [swapSourceHex, setSwapSourceHex] = useState<string | null>(null);
 
   // Workspace UI & Navigation state
   const [activeNavTab, setActiveNavTab] = useState<'studio' | 'palette' | 'blueprint' | 'history'>('studio');
   const [activeTool, setActiveTool] = useState<CanvasTool>('inspect');
+  const [symmetryMode, setSymmetryMode] = useState<SymmetryMode>('none');
   const [comparisonMode, setComparisonMode] = useState<ViewComparisonMode>('pixel');
   const [splitPosition, setSplitPosition] = useState<number>(50);
   const [exportFormat, setExportFormat] = useState<ExportFormat>('png');
   const [exportWithGrid, setExportWithGrid] = useState<boolean>(false);
+  const [exportWithIds, setExportWithIds] = useState<boolean>(false);
   const [showExportModal, setShowExportModal] = useState<boolean>(false);
   const [darkMode, setDarkMode] = useState<boolean>(true);
   const [history, setHistory] = useState<ImageHistoryItem[]>([]);
 
-  // Canvas Pan, Zoom & Inspection state
+  // Blueprint Chunk Inspector state (8x8 chunk coordinates)
+  const [selectedChunk, setSelectedChunk] = useState<{ cx: number; cy: number }>({ cx: 0, cy: 0 });
+
+  // Canvas Pan, Zoom, Shape Drag & Inspection state
   const [panOffset, setPanOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState<boolean>(false);
   const [isPainting, setIsPainting] = useState<boolean>(false);
+  const [shapeStart, setShapeStart] = useState<{ x: number; y: number } | null>(null);
   const panStartRef = useRef<{ clientX: number; clientY: number; startX: number; startY: number }>({
     clientX: 0,
     clientY: 0,
@@ -110,7 +174,14 @@ const App: React.FC = () => {
     }, 2600);
   }, []);
 
-  // Load saved history and theme on mount, plus load default sample so studio is immediately alive
+  // Color lookup map by uppercase HEX
+  const colorByHex = useMemo(() => {
+    const map = new Map<string, WplaceColor>();
+    WPLACE_COLORS.forEach((c) => map.set(c.hex.toUpperCase(), c));
+    return map;
+  }, []);
+
+  // Load saved history and theme on mount, plus load default sample
   useEffect(() => {
     try {
       const savedHistory = localStorage.getItem('wplacePixelHistory_v2');
@@ -130,7 +201,6 @@ const App: React.FC = () => {
       console.error('Failed to load dark mode:', e);
     }
 
-    // Load initial procedural preset so user immediately sees a rich working canvas
     const initialPreset = SAMPLE_PRESETS[0];
     if (initialPreset) {
       const url = initialPreset.generateDataUrl();
@@ -140,12 +210,12 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Save history safely with compact thumbnails
+  // Save history safely
   useEffect(() => {
     try {
       localStorage.setItem('wplacePixelHistory_v2', JSON.stringify(history.slice(0, 12)));
     } catch (e) {
-      console.warn('History storage quota reached, trimming history:', e);
+      console.warn('History storage quota reached:', e);
     }
   }, [history]);
 
@@ -163,19 +233,17 @@ const App: React.FC = () => {
     }
   }, [darkMode]);
 
-  // Compute active palette colors
   const activePaletteColors = useMemo(() => {
     const filtered = WPLACE_COLORS.filter((c) => !disabledHexes.has(c.hex));
     return filtered.length > 0 ? filtered : [WPLACE_COLORS[0]];
   }, [disabledHexes]);
 
-  // Compute color usage dynamically from basePixelMatrix
   const colorUsage = useMemo<ColorUsage[]>(() => {
     if (!basePixelMatrix.length) return [];
     const { colorUsage: usageMap, totalPixels } = calculateMatrixColorUsage(basePixelMatrix);
     const list: ColorUsage[] = [];
     usageMap.forEach((count, hex) => {
-      const color = WPLACE_COLORS.find((c) => c.hex.toUpperCase() === hex.toUpperCase());
+      const color = colorByHex.get(hex.toUpperCase());
       if (color) {
         list.push({
           color,
@@ -186,16 +254,14 @@ const App: React.FC = () => {
     });
     list.sort((a, b) => b.count - a.count);
     return list;
-  }, [basePixelMatrix]);
+  }, [basePixelMatrix, colorByHex]);
 
-  // Re-render displayed dataUrl whenever basePixelMatrix, highlightedHex, or completedHexes changes
   useEffect(() => {
     if (!basePixelMatrix.length) return;
     const url = renderMatrixToDataUrl(basePixelMatrix, highlightedHex, completedHexes);
     setPixelatedImage(url);
   }, [basePixelMatrix, highlightedHex, completedHexes]);
 
-  // Core Pixelation execution
   const runPixelation = useCallback(
     async (saveToHistory = false) => {
       if (!sourceImage) {
@@ -229,6 +295,7 @@ const App: React.FC = () => {
             timestamp: Date.now(),
           };
           setHistory((prev) => [historyItem, ...prev].slice(0, 12));
+          showToast('Saved snapshot to history');
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An error occurred during pixelation.');
@@ -236,10 +303,10 @@ const App: React.FC = () => {
         setIsLoading(false);
       }
     },
-    [sourceImage, sourceImageName, settings, activePaletteColors]
+    [sourceImage, sourceImageName, settings, activePaletteColors, showToast]
   );
 
-  // Auto-update debounce when settings or activePaletteColors change
+  // Auto-update debounce
   useEffect(() => {
     if (!sourceImage || !settings.autoUpdate) return;
     const timer = setTimeout(() => {
@@ -265,66 +332,65 @@ const App: React.FC = () => {
     runPixelation,
   ]);
 
-  // Upload image handler
-  const handleImageUpload = useCallback(
-    (file: File) => {
-      if (!file || !file.type.startsWith('image/')) {
-        setError('Please upload a valid image file (PNG, JPG, GIF, WebP).');
+  const handleImageUpload = useCallback((file: File) => {
+    if (!file || !file.type.startsWith('image/')) {
+      setError('Please upload a valid image file (PNG, JPG, GIF, WebP).');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const result = e.target?.result as string;
+      if (!result) {
+        setError('Failed to read the image file.');
         return;
       }
 
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const result = e.target?.result as string;
-        if (!result) {
-          setError('Failed to read the image file.');
-          return;
-        }
+      const cleanName = file.name.replace(/\.[^/.]+$/, '');
+      setSourceImageName(cleanName);
+      setSourceImage(result);
+      setError(null);
+      setHighlightedHex(null);
+      setCompletedHexes(new Set());
+      setSelectedChunk({ cx: 0, cy: 0 });
 
-        const cleanName = file.name.replace(/\.[^/.]+$/, '');
-        setSourceImageName(cleanName);
-        setSourceImage(result);
-        setError(null);
-        setHighlightedHex(null);
-        setCompletedHexes(new Set());
-
-        const img = new Image();
-        img.onload = () => {
-          const aspectRatio = img.width / img.height;
-          setSourceImageAspectRatio(aspectRatio);
-          setSettings((prev) => ({
-            ...prev,
-            height: prev.lockAspectRatio
-              ? Math.max(1, Math.min(512, Math.round(prev.width / aspectRatio)))
-              : prev.height,
-          }));
-        };
-        img.onerror = () => {
-          setError('Failed to decode the uploaded image.');
-        };
-        img.src = result;
+      const img = new Image();
+      img.onload = () => {
+        const aspectRatio = img.width / img.height;
+        setSourceImageAspectRatio(aspectRatio);
+        setSettings((prev) => ({
+          ...prev,
+          height: prev.lockAspectRatio
+            ? Math.max(1, Math.min(320, Math.round(prev.width / aspectRatio)))
+            : prev.height,
+        }));
       };
-      reader.readAsDataURL(file);
-    },
-    []
-  );
+      img.onerror = () => setError('Failed to decode the uploaded image.');
+      img.src = result;
+    };
+    reader.readAsDataURL(file);
+  }, []);
 
-  const handleLoadSamplePreset = useCallback((presetId: string) => {
-    const preset = SAMPLE_PRESETS.find((p) => p.id === presetId);
-    if (!preset) return;
-    const dataUrl = preset.generateDataUrl();
-    setSourceImageName(preset.name);
-    setSourceImage(dataUrl);
-    setSourceImageAspectRatio(preset.width / preset.height);
-    setHighlightedHex(null);
-    setCompletedHexes(new Set());
-    setSettings((prev) => ({
-      ...prev,
-      width: preset.width,
-      height: preset.height,
-    }));
-    showToast(`Loaded "${preset.name}" sample`);
-  }, [showToast]);
+  const handleLoadSamplePreset = useCallback(
+    (presetId: string) => {
+      const preset = SAMPLE_PRESETS.find((p) => p.id === presetId);
+      if (!preset) return;
+      const dataUrl = preset.generateDataUrl();
+      setSourceImageName(preset.name);
+      setSourceImage(dataUrl);
+      setSourceImageAspectRatio(preset.width / preset.height);
+      setHighlightedHex(null);
+      setCompletedHexes(new Set());
+      setSelectedChunk({ cx: 0, cy: 0 });
+      setSettings((prev) => ({
+        ...prev,
+        width: preset.width,
+        height: preset.height,
+      }));
+      showToast(`Loaded "${preset.name}" template`);
+    },
+    [showToast]
+  );
 
   const handleSettingsChange = useCallback(
     <K extends keyof PixelatorSettings>(key: K, value: PixelatorSettings[K]) => {
@@ -332,13 +398,13 @@ const App: React.FC = () => {
         const next = { ...prev, [key]: value };
         if (next.lockAspectRatio && sourceImageAspectRatio && typeof value === 'number') {
           if (key === 'width') {
-            next.height = Math.max(1, Math.min(512, Math.round(value / sourceImageAspectRatio)));
+            next.height = Math.max(1, Math.min(320, Math.round(value / sourceImageAspectRatio)));
           } else if (key === 'height') {
-            next.width = Math.max(1, Math.min(512, Math.round(value * sourceImageAspectRatio)));
+            next.width = Math.max(1, Math.min(320, Math.round(value * sourceImageAspectRatio)));
           }
         }
         if (key === 'lockAspectRatio' && value === true && sourceImageAspectRatio) {
-          next.height = Math.max(1, Math.min(512, Math.round(next.width / sourceImageAspectRatio)));
+          next.height = Math.max(1, Math.min(320, Math.round(next.width / sourceImageAspectRatio)));
         }
         return next;
       });
@@ -346,12 +412,75 @@ const App: React.FC = () => {
     [sourceImageAspectRatio]
   );
 
-  // Draw crisp pixel & major grid overlay on HTML5 Canvas
+  // Matrix Transformations (Flip H, Flip V, Rotate 90, Color Swap)
+  const pushUndoSnapshot = useCallback(() => {
+    setUndoStack((prev) => [...prev.slice(-29), basePixelMatrix.map((r) => [...r])]);
+    setRedoStack([]);
+  }, [basePixelMatrix]);
+
+  const handleFlipHorizontal = useCallback(() => {
+    if (!basePixelMatrix.length) return;
+    pushUndoSnapshot();
+    setBasePixelMatrix((prev) => flipMatrixHorizontal(prev));
+    showToast('Flipped horizontally');
+  }, [basePixelMatrix.length, pushUndoSnapshot, showToast]);
+
+  const handleFlipVertical = useCallback(() => {
+    if (!basePixelMatrix.length) return;
+    pushUndoSnapshot();
+    setBasePixelMatrix((prev) => flipMatrixVertical(prev));
+    showToast('Flipped vertically');
+  }, [basePixelMatrix.length, pushUndoSnapshot, showToast]);
+
+  const handleRotate90 = useCallback(() => {
+    if (!basePixelMatrix.length) return;
+    pushUndoSnapshot();
+    setBasePixelMatrix((prev) => rotateMatrix90CW(prev));
+    showToast('Rotated 90° clockwise');
+  }, [basePixelMatrix.length, pushUndoSnapshot, showToast]);
+
+  const handleReplaceColorInMatrix = useCallback(
+    (fromHex: string, toColor: WplaceColor) => {
+      if (!basePixelMatrix.length || fromHex.toUpperCase() === toColor.hex.toUpperCase()) return;
+      pushUndoSnapshot();
+      setBasePixelMatrix((prev) => replaceMatrixColor(prev, fromHex, toColor.hex));
+      setSwapSourceHex(null);
+      showToast(`Replaced ${fromHex} with #${toColor.id} ${toColor.name}`);
+    },
+    [basePixelMatrix.length, pushUndoSnapshot, showToast]
+  );
+
+  // Dimensions & Grid Rendering
   const actualMatrixHeight = basePixelMatrix.length || settings.height;
   const actualMatrixWidth = (basePixelMatrix[0] && basePixelMatrix[0].length) || settings.width;
   const displayWidth = settings.previewSize * settings.zoom;
   const displayHeight = displayWidth * (actualMatrixHeight / Math.max(1, actualMatrixWidth));
 
+  // Helper to expand points with active Symmetry Mode
+  const expandWithSymmetry = useCallback(
+    (pts: [number, number][]): [number, number][] => {
+      if (symmetryMode === 'none') return pts;
+      const result: [number, number][] = [];
+      for (const [x, y] of pts) {
+        result.push([x, y]);
+        const mx = actualMatrixWidth - 1 - x;
+        const my = actualMatrixHeight - 1 - y;
+        if (symmetryMode === 'horizontal' || symmetryMode === 'quad') {
+          result.push([mx, y]);
+        }
+        if (symmetryMode === 'vertical' || symmetryMode === 'quad') {
+          result.push([x, my]);
+        }
+        if (symmetryMode === 'quad') {
+          result.push([mx, my]);
+        }
+      }
+      return result;
+    },
+    [symmetryMode, actualMatrixWidth, actualMatrixHeight]
+  );
+
+  // Draw crisp pixel grid, major chunk grid, symmetry axes, shape preview, and Paint-by-Numbers IDs
   useEffect(() => {
     const canvas = gridCanvasRef.current;
     if (!canvas) return;
@@ -367,7 +496,7 @@ const App: React.FC = () => {
     const cellW = displayWidth / actualMatrixWidth;
     const cellH = displayHeight / actualMatrixHeight;
 
-    // 1. Standard 1px cell grid (only draw if cells are >= 4px wide so it stays crisp)
+    // 1. Standard 1px cell grid
     if (settings.showGrid && cellW >= 4) {
       ctx.beginPath();
       ctx.strokeStyle = darkMode ? 'rgba(255, 255, 255, 0.16)' : 'rgba(15, 23, 42, 0.16)';
@@ -386,7 +515,27 @@ const App: React.FC = () => {
       ctx.stroke();
     }
 
-    // 2. Major guide grid (every N pixels, e.g. 8x8 or 10x10 Wplace chunks)
+    // 2. Paint-by-Numbers Color ID Overlay (when toggled ON and cells >= 11px)
+    if (settings.showColorIds && cellW >= 11 && basePixelMatrix.length) {
+      const fontSize = Math.max(8, Math.min(14, Math.floor(cellW * 0.44)));
+      ctx.font = `600 ${fontSize}px "JetBrains Mono", monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      for (let y = 0; y < actualMatrixHeight; y++) {
+        for (let x = 0; x < actualMatrixWidth; x++) {
+          const hex = basePixelMatrix[y]?.[x];
+          if (!hex) continue;
+          if (highlightedHex && hex.toUpperCase() !== highlightedHex.toUpperCase()) continue;
+          const color = colorByHex.get(hex.toUpperCase());
+          if (!color) continue;
+          ctx.fillStyle = isColorDark(hex) ? 'rgba(255,255,255,0.9)' : 'rgba(15,23,42,0.9)';
+          ctx.fillText(String(color.id), (x + 0.5) * cellW, (y + 0.5) * cellH);
+        }
+      }
+    }
+
+    // 3. Major chunk grid (e.g. 8x8 Wplace chunks)
     if (settings.showMajorGrid && settings.majorGridInterval > 1) {
       const step = settings.majorGridInterval;
       ctx.beginPath();
@@ -406,7 +555,45 @@ const App: React.FC = () => {
       ctx.stroke();
     }
 
-    // 3. Highlight hovered or pinned pixel cell
+    // 4. Symmetry Axis Guides
+    if (symmetryMode !== 'none') {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(6, 182, 212, 0.85)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      if (symmetryMode === 'horizontal' || symmetryMode === 'quad') {
+        const midX = Math.floor(displayWidth / 2) + 0.5;
+        ctx.moveTo(midX, 0);
+        ctx.lineTo(midX, displayHeight);
+      }
+      if (symmetryMode === 'vertical' || symmetryMode === 'quad') {
+        const midY = Math.floor(displayHeight / 2) + 0.5;
+        ctx.moveTo(0, midY);
+        ctx.lineTo(displayWidth, midY);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 5. Live Line / Rect Shape Drag Preview
+    if (shapeStart && hoveredPixel && (activeTool === 'line' || activeTool === 'rect')) {
+      const rawPts =
+        activeTool === 'line'
+          ? getLinePixels(shapeStart.x, shapeStart.y, hoveredPixel.x, hoveredPixel.y)
+          : getRectPixels(shapeStart.x, shapeStart.y, hoveredPixel.x, hoveredPixel.y);
+      const previewPts = expandWithSymmetry(rawPts);
+      ctx.fillStyle = activeBrushColor.hex;
+      ctx.globalAlpha = 0.78;
+      for (const [px, py] of previewPts) {
+        if (px >= 0 && px < actualMatrixWidth && py >= 0 && py < actualMatrixHeight) {
+          ctx.fillRect(px * cellW, py * cellH, Math.ceil(cellW), Math.ceil(cellH));
+        }
+      }
+      ctx.globalAlpha = 1.0;
+    }
+
+    // 6. Highlight hovered or pinned pixel cell
     const activeTarget = hoveredPixel || pinnedPixel;
     if (activeTarget) {
       const rx = activeTarget.x * cellW;
@@ -422,10 +609,19 @@ const App: React.FC = () => {
     actualMatrixHeight,
     settings.showGrid,
     settings.showMajorGrid,
+    settings.showColorIds,
     settings.majorGridInterval,
     darkMode,
     hoveredPixel,
     pinnedPixel,
+    basePixelMatrix,
+    highlightedHex,
+    colorByHex,
+    symmetryMode,
+    shapeStart,
+    activeTool,
+    activeBrushColor.hex,
+    expandWithSymmetry,
   ]);
 
   // Flood fill algorithm for Bucket tool
@@ -466,9 +662,7 @@ const App: React.FC = () => {
       if (y < 0 || y >= basePixelMatrix.length || x < 0 || x >= basePixelMatrix[0].length) return;
 
       const currentHex = basePixelMatrix[y][x];
-      const matchedColor = currentHex
-        ? WPLACE_COLORS.find((c) => c.hex.toUpperCase() === currentHex.toUpperCase()) || null
-        : null;
+      const matchedColor = currentHex ? colorByHex.get(currentHex.toUpperCase()) || null : null;
 
       if (activeTool === 'inspect') {
         if (isFirstClick) {
@@ -498,16 +692,19 @@ const App: React.FC = () => {
 
       if (activeTool === 'pencil' || activeTool === 'eraser') {
         const targetHex = activeTool === 'eraser' ? null : activeBrushColor.hex;
-        if (currentHex === targetHex) return;
+        const symmetricCoords = expandWithSymmetry([[x, y]]);
 
         if (isFirstClick) {
-          setUndoStack((prev) => [...prev.slice(-29), basePixelMatrix.map((r) => [...r])]);
-          setRedoStack([]);
+          pushUndoSnapshot();
         }
 
         setBasePixelMatrix((prev) => {
           const next = prev.map((r) => [...r]);
-          next[y][x] = targetHex;
+          for (const [px, py] of symmetricCoords) {
+            if (py >= 0 && py < next.length && px >= 0 && px < next[0].length) {
+              next[py][px] = targetHex;
+            }
+          }
           return next;
         });
         return;
@@ -516,17 +713,19 @@ const App: React.FC = () => {
       if (activeTool === 'bucket' && isFirstClick) {
         const targetHex = activeBrushColor.hex;
         if (currentHex === targetHex) return;
-        setUndoStack((prev) => [...prev.slice(-29), basePixelMatrix.map((r) => [...r])]);
-        setRedoStack([]);
+        pushUndoSnapshot();
         setBasePixelMatrix((prev) => floodFillMatrix(prev, x, y, targetHex));
       }
     },
     [
       basePixelMatrix,
+      colorByHex,
       activeTool,
       activeBrushColor,
       settings.originX,
       settings.originY,
+      expandWithSymmetry,
+      pushUndoSnapshot,
       floodFillMatrix,
       showToast,
     ]
@@ -548,7 +747,7 @@ const App: React.FC = () => {
     setRedoStack((prev) => prev.slice(0, -1));
   }, [redoStack, basePixelMatrix]);
 
-  // Keyboard shortcuts (Ctrl+Z, Ctrl+Y, Spacebar or tool hotkeys)
+  // Keyboard shortcuts
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
@@ -562,13 +761,13 @@ const App: React.FC = () => {
       } else if (e.key === 'Escape') {
         setHighlightedHex(null);
         setPinnedPixel(null);
+        setShapeStart(null);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [handleUndo, handleRedo]);
 
-  // Helper to convert mouse event to grid (x, y)
   const getPixelCoordsFromEvent = useCallback(
     (e: React.MouseEvent | MouseEvent): { x: number; y: number } | null => {
       if (!artWrapperRef.current || !basePixelMatrix.length) return null;
@@ -590,7 +789,6 @@ const App: React.FC = () => {
     [basePixelMatrix.length, actualMatrixWidth, actualMatrixHeight]
   );
 
-  // Viewport Mouse Down (handles Pan or Paint/Inspect)
   const handleViewportMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (e.button === 1 || activeTool === 'pan') {
@@ -606,10 +804,13 @@ const App: React.FC = () => {
 
       const coords = getPixelCoordsFromEvent(e);
       if (coords) {
+        if (activeTool === 'line' || activeTool === 'rect') {
+          setShapeStart(coords);
+          return;
+        }
         setIsPainting(true);
         applyToolAtPixel(coords.x, coords.y, true);
       } else {
-        // Clicked on empty background around the canvas -> pan smoothly
         setIsPanning(true);
         panStartRef.current = {
           clientX: e.clientX,
@@ -637,9 +838,7 @@ const App: React.FC = () => {
       const coords = getPixelCoordsFromEvent(e);
       if (coords && basePixelMatrix.length) {
         const hex = basePixelMatrix[coords.y]?.[coords.x] || null;
-        const color = hex
-          ? WPLACE_COLORS.find((c) => c.hex.toUpperCase() === hex.toUpperCase()) || null
-          : null;
+        const color = hex ? colorByHex.get(hex.toUpperCase()) || null : null;
         setHoveredPixel({
           x: coords.x,
           y: coords.y,
@@ -661,22 +860,48 @@ const App: React.FC = () => {
       activeTool,
       getPixelCoordsFromEvent,
       basePixelMatrix,
+      colorByHex,
       settings.originX,
       settings.originY,
       applyToolAtPixel,
     ]
   );
 
+  // Commit Line or Rectangle shape on mouseup
   useEffect(() => {
     const onWindowMouseUp = () => {
+      if (shapeStart && hoveredPixel && (activeTool === 'line' || activeTool === 'rect')) {
+        const rawPts =
+          activeTool === 'line'
+            ? getLinePixels(shapeStart.x, shapeStart.y, hoveredPixel.x, hoveredPixel.y)
+            : getRectPixels(shapeStart.x, shapeStart.y, hoveredPixel.x, hoveredPixel.y);
+        const allPts = expandWithSymmetry(rawPts);
+        pushUndoSnapshot();
+        setBasePixelMatrix((prev) => {
+          const next = prev.map((r) => [...r]);
+          for (const [px, py] of allPts) {
+            if (py >= 0 && py < next.length && px >= 0 && px < next[0].length) {
+              next[py][px] = activeBrushColor.hex;
+            }
+          }
+          return next;
+        });
+      }
+      setShapeStart(null);
       setIsPanning(false);
       setIsPainting(false);
     };
     window.addEventListener('mouseup', onWindowMouseUp);
     return () => window.removeEventListener('mouseup', onWindowMouseUp);
-  }, []);
+  }, [
+    shapeStart,
+    hoveredPixel,
+    activeTool,
+    expandWithSymmetry,
+    pushUndoSnapshot,
+    activeBrushColor.hex,
+  ]);
 
-  // Mouse wheel zoom on viewport
   const handleViewportWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
     const factor = e.deltaY < 0 ? 1.12 : 0.89;
@@ -686,12 +911,16 @@ const App: React.FC = () => {
     }));
   }, []);
 
-  // High-resolution Image Download (with optional grid & coordinate ruler)
+  // High-resolution Image Download (with optional Grid, Coordinate Ruler & Paint-by-Numbers IDs)
   const handleDownloadImage = useCallback(
-    (format: ExportFormat = exportFormat, includeGrid = exportWithGrid) => {
+    (
+      format: ExportFormat = exportFormat,
+      includeGrid = exportWithGrid,
+      includeIds = exportWithIds
+    ) => {
       if (!basePixelMatrix.length) return;
 
-      const scale = Math.max(1, settings.outputResolution);
+      const scale = Math.max(includeIds ? 16 : 1, settings.outputResolution);
       const rulerMargin = includeGrid && scale >= 10 ? 28 : 0;
       const canvas = document.createElement('canvas');
       canvas.width = actualMatrixWidth * scale + rulerMargin;
@@ -699,13 +928,11 @@ const App: React.FC = () => {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Fill background for JPEG or if preserveTransparency is false
       if (format === 'jpeg' || !settings.preserveTransparency || rulerMargin > 0) {
         ctx.fillStyle = rulerMargin > 0 ? '#0F172A' : settings.backgroundColor || '#FFFFFF';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
 
-      // Draw pixels
       for (let y = 0; y < actualMatrixHeight; y++) {
         for (let x = 0; x < actualMatrixWidth; x++) {
           const hex = basePixelMatrix[y][x];
@@ -721,7 +948,27 @@ const App: React.FC = () => {
         }
       }
 
-      // Optional Blueprint Grid & Ruler numbers
+      if (includeIds && scale >= 12) {
+        const fontSize = Math.max(8, Math.floor(scale * 0.45));
+        ctx.font = `600 ${fontSize}px "JetBrains Mono", monospace`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        for (let y = 0; y < actualMatrixHeight; y++) {
+          for (let x = 0; x < actualMatrixWidth; x++) {
+            const hex = basePixelMatrix[y][x];
+            if (!hex) continue;
+            const c = colorByHex.get(hex.toUpperCase());
+            if (!c) continue;
+            ctx.fillStyle = isColorDark(hex) ? '#FFFFFF' : '#0F172A';
+            ctx.fillText(
+              String(c.id),
+              rulerMargin + (x + 0.5) * scale,
+              rulerMargin + (y + 0.5) * scale
+            );
+          }
+        }
+      }
+
       if (includeGrid && scale >= 4) {
         ctx.strokeStyle = 'rgba(15, 23, 42, 0.25)';
         ctx.lineWidth = 1;
@@ -738,7 +985,6 @@ const App: React.FC = () => {
         }
         ctx.stroke();
 
-        // Major grid lines
         if (settings.majorGridInterval > 1) {
           ctx.strokeStyle = 'rgba(79, 70, 229, 0.75)';
           ctx.lineWidth = Math.max(1.5, scale / 8);
@@ -792,6 +1038,7 @@ const App: React.FC = () => {
       basePixelMatrix,
       exportFormat,
       exportWithGrid,
+      exportWithIds,
       settings.outputResolution,
       settings.preserveTransparency,
       settings.backgroundColor,
@@ -800,12 +1047,12 @@ const App: React.FC = () => {
       settings.originY,
       actualMatrixWidth,
       actualMatrixHeight,
+      colorByHex,
       sourceImageName,
       showToast,
     ]
   );
 
-  // Export Wplace Coordinate Blueprint CSV
   const handleExportBlueprintCsv = useCallback(() => {
     if (!basePixelMatrix.length) return;
     const rows: string[] = ['Local_X,Local_Y,Wplace_X,Wplace_Y,Color_ID,Color_Name,HEX'];
@@ -813,7 +1060,7 @@ const App: React.FC = () => {
       for (let x = 0; x < basePixelMatrix[y].length; x++) {
         const hex = basePixelMatrix[y][x];
         if (!hex) continue;
-        const color = WPLACE_COLORS.find((c) => c.hex.toUpperCase() === hex.toUpperCase());
+        const color = colorByHex.get(hex.toUpperCase());
         rows.push(
           `${x},${y},${settings.originX + x},${settings.originY + y},${color?.id || 0},"${
             color?.name || 'Custom'
@@ -831,7 +1078,7 @@ const App: React.FC = () => {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
     showToast('Exported Wplace coordinate CSV');
-  }, [basePixelMatrix, settings.originX, settings.originY, sourceImageName, showToast]);
+  }, [basePixelMatrix, colorByHex, settings.originX, settings.originY, sourceImageName, showToast]);
 
   const handleCopyBlueprintJson = useCallback(() => {
     if (!basePixelMatrix.length) return;
@@ -861,7 +1108,6 @@ const App: React.FC = () => {
     showToast,
   ]);
 
-  // Toggle individual color in palette filter
   const handleToggleColorEnabled = useCallback((hex: string) => {
     setDisabledHexes((prev) => {
       const next = new Set(prev);
@@ -909,12 +1155,13 @@ const App: React.FC = () => {
       } else {
         setPixelatedImage(item.pixelatedImage);
       }
-      showToast(`Restored "${item.name}" from history`);
+      setActiveNavTab('studio');
+      showToast(`Restored "${item.name}" to Workspace`);
     },
     [showToast]
   );
 
-  // Total completion metrics for Wplace Placement Checklist
+  // Total completion metrics
   const totalPixelCount = useMemo(
     () => colorUsage.reduce((sum, item) => sum + item.count, 0),
     [colorUsage]
@@ -942,6 +1189,13 @@ const App: React.FC = () => {
         String(u.color.id) === q
     );
   }, [colorUsage, colorSearch]);
+
+  // Chunk Inspector calculations (8x8 chunks)
+  const chunkStep = Math.max(4, settings.majorGridInterval || 8);
+  const totalChunksX = Math.max(1, Math.ceil(actualMatrixWidth / chunkStep));
+  const totalChunksY = Math.max(1, Math.ceil(actualMatrixHeight / chunkStep));
+  const safeChunkX = Math.min(selectedChunk.cx, totalChunksX - 1);
+  const safeChunkY = Math.min(selectedChunk.cy, totalChunksY - 1);
 
   return (
     <div className="h-screen w-screen overflow-hidden flex flex-col bg-slate-50 dark:bg-[#090d16] text-slate-900 dark:text-slate-100">
@@ -1104,18 +1358,18 @@ const App: React.FC = () => {
                 )}
               </div>
 
-              {/* Built-in Templates */}
+              {/* Built-in 2x2 Sample Templates */}
               <div className="space-y-1.5">
                 <span className="text-[11px] text-slate-500 dark:text-slate-400">
                   Quick Sample Templates:
                 </span>
-                <div className="grid grid-cols-3 gap-1.5">
+                <div className="grid grid-cols-2 gap-1.5">
                   {SAMPLE_PRESETS.map((sample) => (
                     <button
                       key={sample.id}
                       type="button"
                       onClick={() => handleLoadSamplePreset(sample.id)}
-                      className={`px-2 py-1.5 text-[11px] font-medium rounded-md border transition-colors truncate ${
+                      className={`px-2.5 py-1.5 text-[11px] font-medium rounded-md border transition-colors truncate text-left ${
                         sourceImageName === sample.name
                           ? 'bg-indigo-50 dark:bg-indigo-950/70 border-indigo-500/60 text-indigo-700 dark:text-indigo-300'
                           : 'bg-slate-100/80 dark:bg-slate-800/70 border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
@@ -1141,7 +1395,6 @@ const App: React.FC = () => {
                 </span>
               </div>
 
-              {/* Quick size presets */}
               <div className="grid grid-cols-5 gap-1">
                 {[32, 48, 64, 96, 128].map((dim) => (
                   <button
@@ -1209,6 +1462,31 @@ const App: React.FC = () => {
                   className="w-4 h-4 accent-indigo-600 rounded cursor-pointer"
                 />
               </label>
+
+              {/* Matrix Orientation Actions */}
+              <div className="grid grid-cols-3 gap-1.5 pt-1">
+                <button
+                  type="button"
+                  onClick={handleFlipHorizontal}
+                  className="py-1.5 px-2 text-[11px] font-medium rounded-md bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors whitespace-nowrap shrink-0"
+                >
+                  Flip Horiz
+                </button>
+                <button
+                  type="button"
+                  onClick={handleFlipVertical}
+                  className="py-1.5 px-2 text-[11px] font-medium rounded-md bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors whitespace-nowrap shrink-0"
+                >
+                  Flip Vert
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRotate90}
+                  className="py-1.5 px-2 text-[11px] font-medium rounded-md bg-slate-100 dark:bg-slate-800/80 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-colors whitespace-nowrap shrink-0"
+                >
+                  Rotate 90°
+                </button>
+              </div>
 
               {/* Wplace Start X / Y */}
               <div className="pt-1 grid grid-cols-2 gap-2.5">
@@ -1412,17 +1690,19 @@ const App: React.FC = () => {
           </div>
         </aside>
 
-        {/* CENTER VIEWPORT: Interactive Canvas, Tool Dock, Comparison Views & Coordinate HUD */}
+        {/* CENTER VIEWPORT: Interactive Canvas, Palette Guide, Coordinate Matrix, or History Gallery */}
         <section className="flex-1 flex flex-col relative overflow-hidden bg-canvas-grid">
           {/* Top Workspace Toolbar */}
-          <div className="h-12 shrink-0 px-4 bg-white/90 dark:bg-[#0f1623]/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-4 z-20">
+          <div className="h-12 shrink-0 px-4 bg-white/90 dark:bg-[#0f1623]/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 z-20 overflow-x-auto">
             {/* Left: Interactive Pixel Tools */}
-            <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800">
+            <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800 shrink-0">
               {(
                 [
                   { id: 'inspect', label: 'Inspect' },
                   { id: 'pan', label: 'Pan' },
                   { id: 'pencil', label: 'Pencil' },
+                  { id: 'line', label: 'Line' },
+                  { id: 'rect', label: 'Rect' },
                   { id: 'bucket', label: 'Fill' },
                   { id: 'eyedropper', label: 'Picker' },
                   { id: 'eraser', label: 'Erase' },
@@ -1431,9 +1711,12 @@ const App: React.FC = () => {
                 <button
                   key={tool.id}
                   type="button"
-                  onClick={() => setActiveTool(tool.id)}
-                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
-                    activeTool === tool.id
+                  onClick={() => {
+                    setActiveTool(tool.id);
+                    if (activeNavTab !== 'studio') setActiveNavTab('studio');
+                  }}
+                  className={`px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                    activeTool === tool.id && activeNavTab === 'studio'
                       ? 'bg-white dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 shadow-sm'
                       : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                   }`}
@@ -1443,8 +1726,32 @@ const App: React.FC = () => {
               ))}
             </div>
 
-            {/* Center: Undo / Redo + Comparison Mode Switcher */}
-            <div className="flex items-center gap-2">
+            {/* Center: Symmetry Selector + Undo / Redo + Comparison Mode Switcher */}
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800">
+                {(
+                  [
+                    { id: 'none', label: 'Sym: Off' },
+                    { id: 'horizontal', label: 'Mirror X' },
+                    { id: 'vertical', label: 'Mirror Y' },
+                    { id: 'quad', label: '4-Way' },
+                  ] as { id: SymmetryMode; label: string }[]
+                ).map((sym) => (
+                  <button
+                    key={sym.id}
+                    type="button"
+                    onClick={() => setSymmetryMode(sym.id)}
+                    className={`px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                      symmetryMode === sym.id
+                        ? 'bg-white dark:bg-slate-800 text-cyan-600 dark:text-cyan-400 shadow-sm'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    {sym.label}
+                  </button>
+                ))}
+              </div>
+
               <div className="flex items-center gap-1">
                 <button
                   type="button"
@@ -1472,17 +1779,20 @@ const App: React.FC = () => {
                 {(
                   [
                     { id: 'pixel', label: 'Pixel Art' },
-                    { id: 'split', label: 'Split Compare' },
-                    { id: 'overlay', label: 'Ghost Overlay' },
-                    { id: 'side-by-side', label: 'Side by Side' },
+                    { id: 'split', label: 'Split' },
+                    { id: 'overlay', label: 'Ghost' },
+                    { id: 'side-by-side', label: '2-Up' },
                   ] as { id: ViewComparisonMode; label: string }[]
                 ).map((mode) => (
                   <button
                     key={mode.id}
                     type="button"
-                    onClick={() => setComparisonMode(mode.id)}
-                    className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
-                      comparisonMode === mode.id
+                    onClick={() => {
+                      setComparisonMode(mode.id);
+                      if (activeNavTab !== 'studio') setActiveNavTab('studio');
+                    }}
+                    className={`px-2 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                      comparisonMode === mode.id && activeNavTab === 'studio'
                         ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-sm'
                         : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                     }`}
@@ -1494,17 +1804,15 @@ const App: React.FC = () => {
             </div>
 
             {/* Right: Active Highlight Indicator */}
-            <div className="flex items-center gap-2">
-              {highlightedHex && (
-                <button
-                  type="button"
-                  onClick={() => setHighlightedHex(null)}
-                  className="px-2.5 py-1 text-xs font-medium rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/25 transition-colors whitespace-nowrap shrink-0"
-                >
-                  Clear Color Isolation ({highlightedHex})
-                </button>
-              )}
-            </div>
+            {highlightedHex && (
+              <button
+                type="button"
+                onClick={() => setHighlightedHex(null)}
+                className="px-2.5 py-1 text-xs font-medium rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/25 transition-colors whitespace-nowrap shrink-0"
+              >
+                Clear Isolation ({highlightedHex})
+              </button>
+            )}
           </div>
 
           {/* Toast & Error Notifications */}
@@ -1527,19 +1835,159 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {/* Main Interactive Canvas Surface */}
-          {activeNavTab === 'blueprint' ? (
-            /* Coordinate Matrix Table View */
+          {/* TAB 1: PALETTE GUIDE & GLOBAL COLOR SWAPPER */}
+          {activeNavTab === 'palette' && (
             <div className="flex-1 overflow-auto p-6 bg-slate-50 dark:bg-[#090d16]">
-              <div className="max-w-5xl mx-auto space-y-4">
-                <div className="flex items-center justify-between">
+              <div className="max-w-5xl mx-auto space-y-6">
+                <div className="flex flex-wrap items-center justify-between gap-4">
                   <div>
                     <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                      Wplace Coordinate Blueprint Matrix
+                      Official 64-Color Wplace Master Reference & Color Swapper
                     </h2>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      Exact world coordinates starting from ({settings.originX}, {settings.originY}) ·
-                      Click any color row below or export full coordinate CSV for automated scripts.
+                      Click any color used in your artwork to remap all its pixels to a different
+                      Wplace color, or toggle colors in/out of quantization.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {PALETTE_PRESETS.map((preset) => (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        onClick={() => handleApplyPalettePreset(preset.id)}
+                        className="px-3 py-1.5 text-xs font-medium rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-indigo-500 transition-colors whitespace-nowrap shrink-0"
+                      >
+                        {preset.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Global Color Swapper Banner */}
+                {swapSourceHex && (
+                  <div className="p-4 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-300 dark:border-indigo-700 flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 text-xs">
+                      <span
+                        className="w-6 h-6 rounded border border-black/20 shrink-0"
+                        style={{ backgroundColor: swapSourceHex }}
+                      />
+                      <div>
+                        <p className="font-semibold text-slate-900 dark:text-white">
+                          Select a target color below to replace all pixels of {swapSourceHex}
+                        </p>
+                        <p className="text-slate-500 dark:text-slate-400">
+                          Click any of the 64 Wplace color cards below to perform an instant swap.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSwapSourceHex(null)}
+                      className="px-3 py-1.5 text-xs font-medium rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300"
+                    >
+                      Cancel Swap
+                    </button>
+                  </div>
+                )}
+
+                {/* 64 Color Reference Cards Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2.5">
+                  {WPLACE_COLORS.map((color) => {
+                    const usage = colorUsage.find((u) => u.color.hex === color.hex);
+                    const isDisabled = disabledHexes.has(color.hex);
+                    const isSwapSource = swapSourceHex === color.hex;
+
+                    return (
+                      <div
+                        key={color.id}
+                        onClick={() => {
+                          if (swapSourceHex) {
+                            handleReplaceColorInMatrix(swapSourceHex, color);
+                          } else {
+                            setActiveBrushColor(color);
+                          }
+                        }}
+                        className={`p-2.5 rounded-xl bg-white dark:bg-[#0f1623] border transition-all cursor-pointer ${
+                          isSwapSource
+                            ? 'ring-2 ring-indigo-500 border-indigo-500'
+                            : usage
+                            ? 'border-slate-300 dark:border-slate-700 hover:border-indigo-500'
+                            : 'border-slate-200/70 dark:border-slate-800/70 opacity-75 hover:opacity-100'
+                        }`}
+                      >
+                        <div
+                          className="w-full h-11 rounded-lg border border-black/10 dark:border-white/10 mb-2 flex items-center justify-between px-2"
+                          style={{ backgroundColor: color.hex }}
+                        >
+                          <span
+                            className={`text-[11px] font-mono font-bold ${
+                              isColorDark(color.hex) ? 'text-white' : 'text-slate-900'
+                            }`}
+                          >
+                            #{color.id}
+                          </span>
+                          {usage && (
+                            <span
+                              className={`text-[10px] font-mono tabular-nums font-semibold ${
+                                isColorDark(color.hex) ? 'text-white/90' : 'text-slate-900/90'
+                              }`}
+                            >
+                              {usage.count}px
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
+                          {color.name}
+                        </p>
+                        <div className="flex items-center justify-between mt-1">
+                          <span className="text-[10px] font-mono text-slate-500">{color.hex}</span>
+                          {usage && !swapSourceHex && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSwapSourceHex(color.hex);
+                              }}
+                              className="text-[10px] font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                            >
+                              Swap
+                            </button>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleColorEnabled(color.hex);
+                          }}
+                          className={`mt-2 w-full py-1 text-[10px] font-medium rounded border transition-colors ${
+                            isDisabled
+                              ? 'bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400'
+                              : 'bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                          }`}
+                        >
+                          {isDisabled ? 'Disabled' : 'Enabled'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: COORDINATE MATRIX & CHUNK INSPECTOR */}
+          {activeNavTab === 'blueprint' && (
+            <div className="flex-1 overflow-auto p-6 bg-slate-50 dark:bg-[#090d16]">
+              <div className="max-w-5xl mx-auto space-y-6">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                      Wplace Paint-by-Numbers Chunk Inspector & Coordinate Matrix
+                    </h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      World origin ({settings.originX}, {settings.originY}) · Select any{' '}
+                      {chunkStep}×{chunkStep} chunk below for pixel-by-pixel Wplace placement.
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1557,6 +2005,142 @@ const App: React.FC = () => {
                     >
                       Download Full CSV ({totalPixelCount.toLocaleString()} rows)
                     </button>
+                  </div>
+                </div>
+
+                {/* Interactive Chunk Paint-by-Numbers Inspector */}
+                <div className="p-5 bg-white dark:bg-[#0f1623] border border-slate-200 dark:border-slate-800 rounded-xl space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                        Step-by-Step Chunk Inspector (Chunk X:{safeChunkX + 1}/{totalChunksX}, Y:
+                        {safeChunkY + 1}/{totalChunksY})
+                      </h3>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        Wplace X: {settings.originX + safeChunkX * chunkStep} to{' '}
+                        {settings.originX +
+                          Math.min(actualMatrixWidth, (safeChunkX + 1) * chunkStep) -
+                          1}{' '}
+                        · Wplace Y: {settings.originY + safeChunkY * chunkStep} to{' '}
+                        {settings.originY +
+                          Math.min(actualMatrixHeight, (safeChunkY + 1) * chunkStep) -
+                          1}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedChunk((p) => ({ ...p, cx: Math.max(0, p.cx - 1) }))
+                        }
+                        disabled={safeChunkX === 0}
+                        className="px-2.5 py-1 text-xs font-medium rounded bg-slate-100 dark:bg-slate-800 disabled:opacity-40"
+                      >
+                        Prev X
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedChunk((p) => ({
+                            ...p,
+                            cx: Math.min(totalChunksX - 1, p.cx + 1),
+                          }))
+                        }
+                        disabled={safeChunkX >= totalChunksX - 1}
+                        className="px-2.5 py-1 text-xs font-medium rounded bg-slate-100 dark:bg-slate-800 disabled:opacity-40"
+                      >
+                        Next X
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedChunk((p) => ({ ...p, cy: Math.max(0, p.cy - 1) }))
+                        }
+                        disabled={safeChunkY === 0}
+                        className="px-2.5 py-1 text-xs font-medium rounded bg-slate-100 dark:bg-slate-800 disabled:opacity-40"
+                      >
+                        Prev Y
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSelectedChunk((p) => ({
+                            ...p,
+                            cy: Math.min(totalChunksY - 1, p.cy + 1),
+                          }))
+                        }
+                        disabled={safeChunkY >= totalChunksY - 1}
+                        className="px-2.5 py-1 text-xs font-medium rounded bg-slate-100 dark:bg-slate-800 disabled:opacity-40"
+                      >
+                        Next Y
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Paint-by-Numbers Chunk Matrix Table */}
+                  <div className="overflow-x-auto">
+                    <table className="border-collapse mx-auto">
+                      <thead>
+                        <tr>
+                          <th className="p-1.5 text-[10px] font-mono text-slate-400">Y \ X</th>
+                          {Array.from({ length: chunkStep }).map((_, idx) => {
+                            const gx = safeChunkX * chunkStep + idx;
+                            if (gx >= actualMatrixWidth) return null;
+                            return (
+                              <th
+                                key={gx}
+                                className="p-1.5 text-[10px] font-mono tabular-nums text-slate-500 dark:text-slate-400 text-center"
+                              >
+                                {settings.originX + gx}
+                              </th>
+                            );
+                          })}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Array.from({ length: chunkStep }).map((_, rIdx) => {
+                          const gy = safeChunkY * chunkStep + rIdx;
+                          if (gy >= actualMatrixHeight) return null;
+                          return (
+                            <tr key={gy}>
+                              <td className="p-1.5 text-[10px] font-mono tabular-nums text-slate-500 dark:text-slate-400 pr-2">
+                                {settings.originY + gy}
+                              </td>
+                              {Array.from({ length: chunkStep }).map((__, cIdx) => {
+                                const gx = safeChunkX * chunkStep + cIdx;
+                                if (gx >= actualMatrixWidth) return null;
+                                const hex = basePixelMatrix[gy]?.[gx];
+                                const color = hex ? colorByHex.get(hex.toUpperCase()) : null;
+                                return (
+                                  <td
+                                    key={gx}
+                                    style={{ backgroundColor: hex || 'transparent' }}
+                                    title={
+                                      color
+                                        ? `(${settings.originX + gx}, ${settings.originY + gy}) — #${color.id} ${color.name}`
+                                        : 'Transparent'
+                                    }
+                                    className="w-10 h-10 border border-slate-300 dark:border-slate-700 text-center font-mono text-xs font-bold select-all"
+                                  >
+                                    {color ? (
+                                      <span
+                                        className={
+                                          isColorDark(color.hex) ? 'text-white' : 'text-slate-900'
+                                        }
+                                      >
+                                        #{color.id}
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-400">·</span>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
 
@@ -1636,7 +2220,113 @@ const App: React.FC = () => {
                 </div>
               </div>
             </div>
-          ) : (
+          )}
+
+          {/* TAB 3: SAVED HISTORY GALLERY */}
+          {activeNavTab === 'history' && (
+            <div className="flex-1 overflow-auto p-6 bg-slate-50 dark:bg-[#090d16]">
+              <div className="max-w-5xl mx-auto space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                      Saved Project Snapshots ({history.length})
+                    </h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      Compare different dithering algorithms, resolutions, and manual pixel edits.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => runPixelation(true)}
+                      className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
+                    >
+                      Save Current Artwork
+                    </button>
+                    {history.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHistory([]);
+                          localStorage.removeItem('wplacePixelHistory_v2');
+                        }}
+                        className="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors"
+                      >
+                        Clear All
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {history.length === 0 ? (
+                  <div className="p-12 text-center bg-white dark:bg-[#0f1623] border border-slate-200 dark:border-slate-800 rounded-2xl space-y-3">
+                    <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+                      No snapshots saved yet
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                      Click "Save Current Artwork" above or "Save Snapshot to History" in the left
+                      panel to store versions of your pixel art for comparison.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {history.map((item) => (
+                      <div
+                        key={item.id}
+                        className="p-4 rounded-xl bg-white dark:bg-[#0f1623] border border-slate-200 dark:border-slate-800 flex flex-col justify-between gap-4"
+                      >
+                        <div>
+                          <div className="aspect-square rounded-lg bg-slate-100 dark:bg-slate-950 p-3 flex items-center justify-center mb-3 border border-slate-200/60 dark:border-slate-800">
+                            <img
+                              src={item.pixelatedImage}
+                              alt={item.name}
+                              style={{ imageRendering: 'pixelated' }}
+                              className="w-full h-full object-contain"
+                            />
+                          </div>
+                          <div className="flex items-center justify-between gap-2">
+                            <h3 className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                              {item.name}
+                            </h3>
+                            <span className="text-xs font-mono tabular-nums text-indigo-600 dark:text-indigo-400 font-semibold shrink-0">
+                              {item.settings.width}×{item.settings.height}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                            Dither:{' '}
+                            {item.settings.dithering ? item.settings.ditherAlgorithm : 'None'} ·{' '}
+                            {new Date(item.timestamp).toLocaleTimeString()}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => loadFromHistory(item)}
+                            className="flex-1 py-1.5 px-3 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
+                          >
+                            Load in Studio
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setHistory((prev) => prev.filter((h) => h.id !== item.id))
+                            }
+                            className="py-1.5 px-2.5 text-xs font-medium rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-red-500 transition-colors"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4 (DEFAULT): INTERACTIVE STUDIO CANVAS */}
+          {activeNavTab === 'studio' && (
             <div
               ref={viewportRef}
               onMouseDown={handleViewportMouseDown}
@@ -1758,7 +2448,7 @@ const App: React.FC = () => {
                       </>
                     )}
 
-                    {/* Crisp HTML5 Grid & Coordinate Highlight Canvas */}
+                    {/* Crisp HTML5 Grid, Symmetry, ID Numbers & Coordinate Highlight Canvas */}
                     <canvas
                       ref={gridCanvasRef}
                       className="absolute inset-0 w-full h-full pointer-events-none rounded-lg"
@@ -1770,7 +2460,7 @@ const App: React.FC = () => {
               {/* Top-Left Live Coordinate & Color Inspector HUD */}
               <div
                 onMouseDown={(e) => e.stopPropagation()}
-                className="absolute top-3 left-3 bg-white/95 dark:bg-[#0f1623]/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 shadow-lg text-xs space-y-1.5 min-w-[230px]"
+                className="absolute top-3 left-3 bg-white/95 dark:bg-[#0f1623]/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-xl px-3.5 py-2.5 shadow-lg text-xs space-y-1.5 min-w-[235px]"
               >
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
@@ -1827,7 +2517,7 @@ const App: React.FC = () => {
                 )}
               </div>
 
-              {/* Bottom Floating Viewport Controls (StopPropagation fixes dragging bug!) */}
+              {/* Bottom Floating Viewport Controls */}
               <div
                 onMouseDown={(e) => e.stopPropagation()}
                 className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/95 dark:bg-[#0f1623]/95 backdrop-blur-md border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2 shadow-xl flex items-center gap-4 text-xs z-20"
@@ -1899,11 +2589,34 @@ const App: React.FC = () => {
                   </span>
                 </label>
 
+                {/* Paint-by-Numbers Color ID Toggle */}
+                <label
+                  className="flex items-center gap-1.5 cursor-pointer whitespace-nowrap shrink-0"
+                  title="Display Wplace Color IDs (#1-64) inside each pixel (zoom in if cells are small)"
+                >
+                  <input
+                    type="checkbox"
+                    checked={settings.showColorIds}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      handleSettingsChange('showColorIds', checked);
+                      if (checked && displayWidth / actualMatrixWidth < 12) {
+                        handleSettingsChange(
+                          'zoom',
+                          Math.min(4, Math.ceil((14 * actualMatrixWidth) / settings.previewSize))
+                        );
+                      }
+                    }}
+                    className="w-3.5 h-3.5 accent-indigo-600 rounded"
+                  />
+                  <span className="text-slate-700 dark:text-slate-300">Color IDs (#)</span>
+                </label>
+
                 {comparisonMode === 'overlay' && (
                   <>
                     <div className="h-4 w-px bg-slate-200 dark:bg-slate-800" />
                     <div className="flex items-center gap-2">
-                      <span className="text-slate-500 dark:text-slate-400">Overlay Opacity</span>
+                      <span className="text-slate-500 dark:text-slate-400">Opacity</span>
                       <input
                         type="range"
                         min={0.1}
@@ -1970,7 +2683,6 @@ const App: React.FC = () => {
                 </span>
               </div>
 
-              {/* Progress Bar */}
               <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                 <div
                   style={{ width: `${completionPercent}%` }}
@@ -1978,7 +2690,6 @@ const App: React.FC = () => {
                 />
               </div>
 
-              {/* Filter Input */}
               <div className="flex items-center gap-2">
                 <input
                   type="text"
@@ -1998,7 +2709,6 @@ const App: React.FC = () => {
                 )}
               </div>
 
-              {/* Color Usage List with Isolate & Checkoff */}
               <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
                 {filteredColorUsage.map((u) => {
                   const isIsolated = highlightedHex === u.color.hex;
@@ -2062,13 +2772,10 @@ const App: React.FC = () => {
                 {history.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setHistory([]);
-                      localStorage.removeItem('wplacePixelHistory_v2');
-                    }}
-                    className="text-[11px] text-red-500 hover:underline"
+                    onClick={() => setActiveNavTab('history')}
+                    className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline"
                   >
-                    Clear All
+                    Open Gallery
                   </button>
                 )}
               </div>
@@ -2079,7 +2786,7 @@ const App: React.FC = () => {
                 </p>
               ) : (
                 <div className="grid grid-cols-2 gap-2">
-                  {history.map((item) => (
+                  {history.slice(0, 4).map((item) => (
                     <button
                       key={item.id}
                       type="button"
@@ -2182,7 +2889,6 @@ const App: React.FC = () => {
                   </p>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
                     Draws grid lines and world coordinates ({settings.originX}, {settings.originY})
-                    onto the image
                   </p>
                 </div>
                 <input
@@ -2193,11 +2899,28 @@ const App: React.FC = () => {
                 />
               </label>
 
+              <label className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 cursor-pointer">
+                <div>
+                  <p className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                    Bake Paint-by-Numbers Color IDs (#1–#64)
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Prints the Wplace Color ID inside every pixel cell
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={exportWithIds}
+                  onChange={(e) => setExportWithIds(e.target.checked)}
+                  className="w-4 h-4 accent-indigo-600 rounded"
+                />
+              </label>
+
               <div className="pt-2 space-y-2">
                 <button
                   type="button"
                   onClick={() => {
-                    handleDownloadImage(exportFormat, exportWithGrid);
+                    handleDownloadImage(exportFormat, exportWithGrid, exportWithIds);
                     setShowExportModal(false);
                   }}
                   className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"

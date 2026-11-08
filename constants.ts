@@ -269,6 +269,65 @@ export const SAMPLE_PRESETS: SamplePreset[] = [
 
       return c.toDataURL('image/png');
     }
+  },
+  {
+    id: 'emerald-crest',
+    name: 'Emerald Crest',
+    subtitle: 'Pixel emblem with golden crown & crystal gem',
+    width: 48,
+    height: 48,
+    generateDataUrl: () => {
+      const c = document.createElement('canvas');
+      c.width = 240;
+      c.height = 240;
+      const ctx = c.getContext('2d')!;
+      ctx.fillStyle = '#141414';
+      ctx.fillRect(0, 0, 240, 240);
+
+      // Shield outer
+      ctx.fillStyle = '#E3A062';
+      ctx.beginPath();
+      ctx.moveTo(40, 35);
+      ctx.lineTo(200, 35);
+      ctx.lineTo(200, 125);
+      ctx.lineTo(120, 215);
+      ctx.lineTo(40, 125);
+      ctx.closePath();
+      ctx.fill();
+
+      // Shield inner
+      ctx.fillStyle = '#00C645';
+      ctx.beginPath();
+      ctx.moveTo(56, 50);
+      ctx.lineTo(184, 50);
+      ctx.lineTo(184, 120);
+      ctx.lineTo(120, 194);
+      ctx.lineTo(56, 120);
+      ctx.closePath();
+      ctx.fill();
+
+      // Center diamond gem
+      ctx.fillStyle = '#00FFFF';
+      ctx.beginPath();
+      ctx.moveTo(120, 72);
+      ctx.lineTo(156, 118);
+      ctx.lineTo(120, 164);
+      ctx.lineTo(84, 118);
+      ctx.closePath();
+      ctx.fill();
+
+      // Highlight facet
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.moveTo(120, 72);
+      ctx.lineTo(138, 118);
+      ctx.lineTo(120, 118);
+      ctx.closePath();
+      ctx.fill();
+
+      return c.toDataURL('image/png');
+    }
   }
 ];
+
 

@@ -1,6 +1,7 @@
 export type DitherAlgorithm = 'none' | 'floyd-steinberg' | 'atkinson' | 'bayer-4x4' | 'bayer-8x8';
 export type ColorSpaceMode = 'perceptual' | 'euclidean';
-export type CanvasTool = 'pan' | 'inspect' | 'pencil' | 'eyedropper' | 'bucket' | 'eraser';
+export type CanvasTool = 'pan' | 'inspect' | 'pencil' | 'line' | 'rect' | 'eyedropper' | 'bucket' | 'eraser';
+export type SymmetryMode = 'none' | 'horizontal' | 'vertical' | 'quad';
 export type ViewComparisonMode = 'pixel' | 'split' | 'overlay' | 'side-by-side';
 export type ExportFormat = 'png' | 'jpeg' | 'webp';
 
@@ -12,6 +13,7 @@ export interface PixelatorSettings {
   opacity: number;
   showGrid: boolean;
   showMajorGrid: boolean;
+  showColorIds: boolean;
   majorGridInterval: number;
   previewSize: number;
   outputResolution: number;

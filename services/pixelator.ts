@@ -180,6 +180,36 @@ export const calculateMatrixColorUsage = (
   return { colorUsage, totalPixels: Math.max(1, totalPixels) };
 };
 
+export const flipMatrixHorizontal = (matrix: (string | null)[][]): (string | null)[][] =>
+  matrix.map((row) => [...row].reverse());
+
+export const flipMatrixVertical = (matrix: (string | null)[][]): (string | null)[][] =>
+  [...matrix].reverse().map((row) => [...row]);
+
+export const rotateMatrix90CW = (matrix: (string | null)[][]): (string | null)[][] => {
+  const h = matrix.length;
+  const w = h > 0 ? matrix[0].length : 0;
+  if (h === 0 || w === 0) return matrix;
+  const rotated: (string | null)[][] = Array.from({ length: w }, () => Array(h).fill(null));
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      rotated[x][h - 1 - y] = matrix[y][x];
+    }
+  }
+  return rotated;
+};
+
+export const replaceMatrixColor = (
+  matrix: (string | null)[][],
+  fromHex: string,
+  toHex: string | null
+): (string | null)[][] => {
+  const target = fromHex.toUpperCase();
+  return matrix.map((row) =>
+    row.map((cell) => (cell && cell.toUpperCase() === target ? toHex : cell))
+  );
+};
+
 export const createThumbnailDataUrl = (imageSrc: string, maxDim = 96): Promise<string> => {
   return new Promise((resolve) => {
     const img = new Image();
